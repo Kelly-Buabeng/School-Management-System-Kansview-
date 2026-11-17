@@ -6,11 +6,11 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "generate": "kysely-codegen --dialect postgres --url \"$SMS_DB_URL\" --default-schema app --include-pattern '(app|audit|import).*' --out-file src/db.ts",
+    "generate": "node scripts/generate.mjs",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "echo 'no tests (generated)'",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
-  "devDependencies": { "kysely-codegen": "^0.18.0", "kysely": "^0.28.0", "typescript": "~5.9.0", "pg": "^8.16.0" }
+  "devDependencies": { "@types/node": "^22.0.0", "kysely-codegen": "^0.18.0", "kysely": "^0.28.0", "typescript": "~5.9.0", "pg": "^8.16.0" }
 }
