@@ -76,10 +76,9 @@ export interface School {
 
 /**
  * Seeds a small school directly in SQL: current year 2026/2027 (3 terms, term 1 current) and planned 2027/2028,
- * levels KG1 → P1 → P2 → JHS3 (final), classes for both years (P1 A/B, P2 A, JHS3, KG1).
+ * seeded levels (KG1, P1 → P2, JHS3 final), classes for both years (P1 A/B, P2 A, JHS3, KG1).
  */
 export async function seedSchool(k: Kysely<DB>): Promise<School> {
-  await sql`INSERT INTO app.school_profile (id, name, school_code) VALUES (1, 'Kansview Test School', 'KSV') ON CONFLICT DO NOTHING`.execute(k);
   const y1 = await k.insertInto('academic_years').values({ name: '2026/2027', start_date: '2026-09-01', end_date: '2027-07-31', status: 'current' }).returning('id').executeTakeFirstOrThrow();
   const y2 = await k.insertInto('academic_years').values({ name: '2027/2028', start_date: '2027-09-01', end_date: '2028-07-31' }).returning('id').executeTakeFirstOrThrow();
   const terms = await k.insertInto('terms').values([
@@ -90,10 +89,10 @@ export async function seedSchool(k: Kysely<DB>): Promise<School> {
     { academic_year_id: y2.id, number: 2, name: 'Term 2', start_date: '2028-01-10', end_date: '2028-04-07' },
     { academic_year_id: y2.id, number: 3, name: 'Term 3', start_date: '2028-04-24', end_date: '2028-07-21' },
   ]).returning(['id', 'academic_year_id', 'number']).execute();
-  const jhs3 = await k.insertInto('levels').values({ code: 'JHS3', name: 'JHS 3', sort_order: 130, is_final_level: true }).returning('id').executeTakeFirstOrThrow();
-  const p2 = await k.insertInto('levels').values({ code: 'P2', name: 'Primary 2', sort_order: 60, next_level_id: null }).returning('id').executeTakeFirstOrThrow();
-  const p1 = await k.insertInto('levels').values({ code: 'P1', name: 'Primary 1', sort_order: 50, next_level_id: p2.id }).returning('id').executeTakeFirstOrThrow();
-  const kg1 = await k.insertInto('levels').values({ code: 'KG1', name: 'KG 1', sort_order: 30, next_level_id: p1.id }).returning('id').executeTakeFirstOrThrow();
+  // Levels come from the reference data migration (Creche → JHS3, chained by next_level_id).
+  const lv = await k.selectFrom('levels').select(['id', 'code']).execute();
+  const byCode = (c: string) => lv.find((l) => l.code === c)!;
+  const [kg1, p1, p2, jhs3] = [byCode('KG1'), byCode('P1'), byCode('P2'), byCode('JHS3')];
   const mk = async (yearId: string, levelId: string, stream: string | null, name: string, capacity: number | null = 40) =>
     (await k.insertInto('classes').values({ academic_year_id: yearId, level_id: levelId, stream, display_name: name, capacity }).returning('id').executeTakeFirstOrThrow()).id;
   const classes = {

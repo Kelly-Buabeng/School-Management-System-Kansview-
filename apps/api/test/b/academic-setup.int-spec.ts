@@ -49,15 +49,15 @@ describe('academic setup and settings', () => {
 
   it('creates levels with weights and classes with capacity', async () => {
     ctx.as('ADMIN');
-    levelP2 = (await ctx.http().post('/api/v1/levels').send({ code: 'P2', name: 'Primary 2', sortOrder: 60 }).expect(201)).body.id;
-    const p1 = await ctx.http().post('/api/v1/levels').send({ code: 'P1', name: 'Primary 1', sortOrder: 50, nextLevelId: levelP2, classScoreWeight: 40, examScoreWeight: 60 }).expect(201);
+    levelP2 = (await ctx.http().post('/api/v1/levels').send({ code: 'X2', name: 'Extra 2', sortOrder: 510 }).expect(201)).body.id;
+    const p1 = await ctx.http().post('/api/v1/levels').send({ code: 'X1', name: 'Extra 1', sortOrder: 500, nextLevelId: levelP2, classScoreWeight: 40, examScoreWeight: 60 }).expect(201);
     levelP1 = p1.body.id;
     expect(p1.body).toMatchObject({ classScoreWeight: 40, examScoreWeight: 60, nextLevelId: levelP2 });
-    await ctx.http().post('/api/v1/levels').send({ code: 'P3', name: 'P3', sortOrder: 70, classScoreWeight: 40, examScoreWeight: 70 }).expect(400);
-    await ctx.http().post('/api/v1/levels').send({ code: 'P1', name: 'Dup', sortOrder: 99 }).expect(409);
+    await ctx.http().post('/api/v1/levels').send({ code: 'X3', name: 'X3', sortOrder: 520, classScoreWeight: 40, examScoreWeight: 70 }).expect(400);
+    await ctx.http().post('/api/v1/levels').send({ code: 'X1', name: 'Dup', sortOrder: 599 }).expect(409);
     const c = await ctx.http().post('/api/v1/classes').send({ academicYearId: yearId, levelId: levelP1, stream: 'A', capacity: 30 }).expect(201);
     classId = c.body.id;
-    expect(c.body).toMatchObject({ displayName: 'Primary 1 A', capacity: 30, enrolledCount: 0, availablePlaces: 30 });
+    expect(c.body).toMatchObject({ displayName: 'Extra 1 A', capacity: 30, enrolledCount: 0, availablePlaces: 30 });
     await ctx.http().post('/api/v1/classes').send({ academicYearId: yearId, levelId: levelP1, stream: 'A' }).expect(409);
     const list = await ctx.http().get('/api/v1/classes').expect(200);
     expect(list.body.map((x: { id: string }) => x.id)).toContain(classId);
@@ -74,6 +74,7 @@ describe('academic setup and settings', () => {
     expect(ls.body.subjects.map((s: { code: string }) => s.code)).toEqual(['ENG', 'MATH']);
     const bands = [{ minScore: 80, maxScore: 100, grade: '1', remark: 'Highest' }, { minScore: 0, maxScore: 79, grade: '2', remark: 'Lower' }];
     const g = await ctx.http().post('/api/v1/grading-scales').send({ name: 'Basic', isDefault: true, bands }).expect(201);
+    expect((await ctx.http().get('/api/v1/grading-scales').expect(200)).body.filter((s: { isDefault: boolean }) => s.isDefault)).toHaveLength(1);
     expect(g.body.bands).toHaveLength(2);
     await ctx.http().put(`/api/v1/grading-scales/${g.body.id}`).send({ name: 'Basic', bands: [...bands, { minScore: 50, maxScore: 60, grade: 'X' }] }).expect(400);
     await ctx.http().put(`/api/v1/grading-scales/${RANDOM_ID}`).send({ name: 'Nope', bands }).expect(404);
@@ -83,11 +84,12 @@ describe('academic setup and settings', () => {
     ctx.as('ADMIN');
     const get = await ctx.http().get('/api/v1/settings/policies').expect(200);
     expect(get.body['promotion.block_on_arrears']).toBe('warn');
+    expect(get.body['finance.allocation_order']).toBe('oldest_first_by_priority');
     const etag = String(get.headers.etag);
     await ctx.http().patch('/api/v1/settings/policies').send({ 'promotion.block_on_arrears': 'block' }).expect(428);
     await ctx.http().patch('/api/v1/settings/policies').set('If-Match', etag).send({ 'promotion.block_on_arrears': 'maybe' }).expect(400);
     await ctx.http().patch('/api/v1/settings/policies').set('If-Match', etag).send({ 'not.a.key': 1 }).expect(400);
-    const ok = await ctx.http().patch('/api/v1/settings/policies').set('If-Match', etag).send({ 'promotion.block_on_arrears': 'block', 'attendance.sms_on_absence': true }).expect(200);
+    const ok = await ctx.http().patch('/api/v1/settings/policies').set('If-Match', etag).send({ 'promotion.block_on_arrears': 'block', 'attendance.sms_on_absence': false }).expect(200);
     expect(ok.body['promotion.block_on_arrears']).toBe('block');
     await ctx.http().patch('/api/v1/settings/policies').set('If-Match', etag).send({ 'promotion.block_on_arrears': 'off' }).expect(412);
     expect((await auditEvents(ctx)).some((e) => e.entityType === 'settings')).toBe(true);
@@ -97,7 +99,7 @@ describe('academic setup and settings', () => {
     ctx.as('ADMIN');
     const g = await ctx.http().get('/api/v1/settings/school').expect(200);
     const res = await ctx.http().patch('/api/v1/settings/school').set('If-Match', String(g.body.version)).send({ name: 'Kansview School', schoolCode: 'KSV' }).expect(200);
-    expect(res.body).toMatchObject({ name: 'Kansview School', schoolCode: 'KSV', version: 1 });
+    expect(res.body).toMatchObject({ name: 'Kansview School', schoolCode: 'KSV', version: g.body.version + 1 });
     await ctx.http().patch('/api/v1/settings/school').set('If-Match', '0').send({ motto: 'x' }).expect(412);
   });
 
