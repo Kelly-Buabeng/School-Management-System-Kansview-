@@ -1,6 +1,5 @@
 // Owner: Agent F.
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { sql } from 'kysely';
 import { FILE_STORE, type FileStore } from '../../common/contracts';
 import { KYSELY, type Db } from '../../common/db/database.module';
 import type { SchoolHeader } from './templates/common';
@@ -40,12 +39,10 @@ export class DbSchoolHeaderSource implements SchoolHeaderSource {
 
   async get(): Promise<SchoolHeader | null> {
     if (this.cache && Date.now() - this.cache.at < CACHE_MS) return this.cache.value;
-    const res = await sql<ProfileRow>`
-      SELECT sp.name, sp.motto, sp.address, sp.phone, sp.email, f.storage_key, f.mime_type
-      FROM school_profile sp
-      LEFT JOIN files f ON f.id = sp.logo_file_id AND f.scan_status = 'clean'
-      LIMIT 1`.execute(this.db);
-    const row = res.rows[0];
+    const row: ProfileRow | undefined = await this.db.selectFrom('school_profile as sp')
+      .leftJoin('files as f', (j) => j.onRef('f.id', '=', 'sp.logo_file_id').on('f.scan_status', '=', 'clean'))
+      .select(['sp.name', 'sp.motto', 'sp.address', 'sp.phone', 'sp.email', 'f.storage_key', 'f.mime_type'])
+      .executeTakeFirst();
     let value: SchoolHeader | null = null;
     if (row) {
       value = { name: row.name, motto: row.motto, address: row.address, phone: row.phone, email: row.email, logoDataUrl: null };
