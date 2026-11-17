@@ -1,0 +1,117 @@
+# Owner: Agent H. Reverse proxy, TLS and static file server for the Kansview SMS.
+#
+# Environment (set in infra/compose/.env, see infra/.env.example):
+#   SMS_DOMAIN          host name staff type in the browser, e.g. sms.kansview.lan (LAN) or sms.example.edu.gh (cloud)
+#   SMS_TLS             "internal"  -> Caddy's own certificate authority (LAN / no internet). Install the root
+#                                      certificate on staff devices once (docs/operations/deployment-guide.md).
+#                       an e-mail   -> public Let's Encrypt/ZeroSSL certificate (domain must be reachable on ports 80/443)
+#   SMS_API_UPSTREAM    default api:3000
+#   SMS_CSP_STYLE_SRC   default 'self'. Only relax (e.g. 'self' 'unsafe-inline') if the UI cannot avoid inline <style>.
+#
+# Caddy runs unprivileged on 8080/8443; Compose publishes them on host ports 80/443.
+
+{
+	admin off
+	http_port 8080
+	https_port 8443
+	# Our own redirect below (Caddy's automatic one would add :8443 to the URL).
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+		timeouts {
+			read_header 10s
+			read_body 60s
+			write 120s
+			idle 2m
+		}
+		max_header_size 32KB
+	}
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src {$SMS_CSP_STYLE_SRC:'self'}; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		-Server
+		-X-Powered-By
+		defer
+	}
+}
+
+# Plain HTTP: redirect everything to HTTPS (ACME HTTP-01 challenges are still answered automatically).
+http://{$SMS_DOMAIN:localhost} {
+	redir https://{host}{uri} 308
+}
+
+{$SMS_DOMAIN:localhost} {
+	tls {$SMS_TLS:internal}
+	import security_headers
+	encode zstd gzip
+
+	# ---------- API ----------
+	# Uploads (documents, photos, logo, payment evidence, imports): 12 MB; the API enforces the real per-type limit (5 MB).
+	@uploads {
+		path /api/v1/students/*/documents /api/v1/students/*/photo /api/v1/settings/school/logo /api/v1/payments/*/evidence /api/v1/imports
+		method POST PUT
+	}
+	handle @uploads {
+		request_body {
+			max_size 12MB
+		}
+		reverse_proxy {$SMS_API_UPSTREAM:api:3000} {
+			header_up X-Request-Id {http.request.uuid}
+			transport http {
+				read_timeout 120s
+			}
+		}
+	}
+	handle /api/* {
+		request_body {
+			max_size 1MB
+		}
+		header Cache-Control "no-store"
+		reverse_proxy {$SMS_API_UPSTREAM:api:3000} {
+			header_up X-Request-Id {http.request.uuid}
+			# Readiness-aware: do not send traffic to an api that is still migrating/starting.
+			health_uri /api/v1/health/ready
+			health_interval 15s
+			health_timeout 5s
+			fail_duration 10s
+		}
+	}
+
+	# ---------- Static web app (Vite build) ----------
+	handle {
+		root * /srv/www
+		# Content-hashed files never change: cache for a year.
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		# index.html and other entry files must always be revalidated so new releases load at once.
+		@entry not path /assets/*
+		header @entry Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# Internal health endpoint for the container HEALTHCHECK (not published by Compose).
+http://127.0.0.1:8081 {
+	bind 127.0.0.1
+	respond /healthz "ok" 200
+}
