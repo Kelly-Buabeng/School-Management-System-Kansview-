@@ -1,0 +1,16 @@
+{
+  "name": "@sms/db-types",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "generate": "kysely-codegen --dialect postgres --url \"$SMS_DB_URL\" --default-schema app --include-pattern '(app|audit|import).*' --out-file src/db.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo 'no tests (generated)'",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": { "kysely-codegen": "^0.18.0", "kysely": "^0.28.0", "typescript": "~5.9.0", "pg": "^8.16.0" }
+}
