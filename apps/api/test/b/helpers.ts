@@ -70,8 +70,8 @@ export interface School {
   yearId: string;
   nextYearId: string;
   termIds: string[];
-  levels: Record<string, string>;
-  classes: Record<string, string>;
+  levels: Record<'KG1' | 'P1' | 'P2' | 'JHS3', string>;
+  classes: Record<'KG1' | 'P1A' | 'P1B' | 'P2A' | 'JHS3' | 'NEXT_P1' | 'NEXT_P2A' | 'NEXT_P2B', string>;
 }
 
 /**
