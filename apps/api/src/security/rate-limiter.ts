@@ -69,6 +69,11 @@ export class RateLimiter implements OnModuleDestroy {
     this.hits.delete(key);
   }
 
+  /** Clears all counters (tests, or an administrator after an incident). */
+  resetAll(): void {
+    this.hits.clear();
+  }
+
   private sweep(now = Date.now()): void {
     const maxWindow = Math.max(...Object.values(RATE_LIMITS).map((r) => r.windowMs));
     for (const [k, v] of this.hits) {

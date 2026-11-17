@@ -112,6 +112,11 @@ export class FieldCryptoEngine implements FieldCrypto {
     return createHmac('sha256', this.ring.blindIndexKey).update(value, 'utf8').digest();
   }
 
+  /** Derives a stable purpose-specific secret (e.g. CSRF HMAC key) that survives master-key rotation. */
+  deriveKey(info: string): Buffer {
+    return Buffer.from(hkdfSync('sha256', this.ring.blindIndexKey, Buffer.alloc(0), `sms-derived:${info}`, 32));
+  }
+
   keyIdOf(ciphertext: Buffer): number {
     this.checkShape(ciphertext);
     return ciphertext[1]!;

@@ -108,7 +108,7 @@ function visible(rule: Rule, key: string): boolean {
 export class RoleFieldPolicy implements FieldPolicy {
   apply<T extends Record<string, unknown>>(resource: PolicyResource, dto: T, user: AuthUser): Partial<T> {
     const rules = user.roles.map((r) => ruleFor(resource, r, dto, user));
-    const out: Partial<T> = {};
+    const out: Record<string, unknown> = {};
     for (const key of Object.keys(dto) as Array<keyof T & string>) {
       if (ALWAYS_HIDDEN.has(key)) continue;
       if (resource === 'student' && MEDICAL_DETAIL(key) && !user.permissions.has('medical:read')) continue;
@@ -116,6 +116,6 @@ export class RoleFieldPolicy implements FieldPolicy {
       if (resource === 'guardian' && ADDRESS(key) && !user.roles.some((r) => r === 'ADMIN' || r === 'HEADTEACHER' || r === 'REGISTRAR')) continue;
       if (rules.some((rule) => visible(rule, key))) out[key] = dto[key];
     }
-    return out;
+    return out as Partial<T>;
   }
 }
