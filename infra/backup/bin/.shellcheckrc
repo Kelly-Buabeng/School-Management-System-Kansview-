@@ -1,0 +1,3 @@
+# Backup folder names are generated (YYYYMMDDTHHMMSSZ), so ls|grep is safe; COMPONENT is read by lib.sh.
+disable=SC2010,SC2034
+external-sources=true

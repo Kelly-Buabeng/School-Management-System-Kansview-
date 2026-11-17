@@ -11,7 +11,9 @@ ARG NODE_IMAGE=node:22.23.5-alpine3.24@sha256:1314fb30ec37592d5845e5a160d522c0e6
 
 # ---------- build stage: install all deps, compile shared packages and the API ----------
 FROM ${NODE_IMAGE} AS build
-ENV PNPM_HOME=/pnpm CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# Optional build secret "extra_ca": a CA bundle for networks with a TLS-inspecting proxy
+#   docker build --secret id=extra_ca,src=/path/ca.pem ...   (absent = normal public CAs)
+ENV PNPM_HOME=/pnpm CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca
 RUN corepack enable
 WORKDIR /repo
 # Manifests first so the dependency layer is cached between code changes.
@@ -21,14 +23,14 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db-types/package.json packages/db-types/
 COPY db/package.json db/
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store --mount=type=secret,id=extra_ca,required=false \
     pnpm install --frozen-lockfile --filter "@sms/api..." --filter "@sms/db"
 COPY packages/ packages/
 COPY apps/api/ apps/api/
 COPY db/ db/
 RUN pnpm --filter "@sms/api^..." build && pnpm --filter @sms/api build
 # Production-only node_modules with workspace packages copied in (no symlinks back to /repo).
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store --mount=type=secret,id=extra_ca,required=false \
     pnpm --filter @sms/api deploy --legacy --prod /out \
  && mkdir -p /out/db && cp -r db/tools db/migrations /out/db/ \
  && rm -rf /out/src /out/test /out/*.tsbuildinfo

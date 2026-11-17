@@ -21,7 +21,7 @@ function buildDbUrl() {
     console.error(JSON.stringify({ level: 'fatal', msg: 'Set SMS_DB_PASSWORD_FILE (production) or SMS_DB_URL (development)' }));
     process.exit(1);
   }
-  const user = encodeURIComponent(process.env.SMS_DB_USER ?? 'sms_app');
+  const user = encodeURIComponent(process.env.SMS_DB_USER ?? 'sms_api');
   const password = encodeURIComponent(readSecret(pwFile, 'SMS_DB_PASSWORD_FILE'));
   const host = process.env.SMS_DB_HOST ?? 'postgres';
   const port = process.env.SMS_DB_PORT ?? '5432';

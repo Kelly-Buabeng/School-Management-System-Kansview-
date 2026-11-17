@@ -6,14 +6,16 @@ ARG NODE_IMAGE=node:22.23.5-alpine3.24@sha256:1314fb30ec37592d5845e5a160d522c0e6
 ARG CADDY_IMAGE=caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
 
 FROM ${NODE_IMAGE} AS build
-ENV PNPM_HOME=/pnpm CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# Optional build secret "extra_ca": a CA bundle for networks with a TLS-inspecting proxy
+#   docker build --secret id=extra_ca,src=/path/ca.pem ...   (absent = normal public CAs)
+ENV PNPM_HOME=/pnpm CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca
 RUN corepack enable
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
 COPY packages/contracts/package.json packages/contracts/
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store --mount=type=secret,id=extra_ca,required=false \
     pnpm install --frozen-lockfile --filter "@sms/web..."
 COPY packages/ packages/
 COPY apps/web/ apps/web/
