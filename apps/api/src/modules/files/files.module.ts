@@ -1,20 +1,15 @@
 // Owner: Agent F. See docs/plan/phase1-agent-tasks.md. Do not edit from another agent; raise a change request.
-import { Global, Injectable, Module } from '@nestjs/common';
-import { FILE_STORE, type FileStore } from '../../common/contracts';
-import { AppError } from '../../common/app-error';
-
-// SCAFFOLD STUB(S): replace with the real implementation and update the binding below.
-@Injectable()
-export class StubFileStore implements FileStore {
-  async put(): Promise<void> { throw new AppError(501, 'NOT_IMPLEMENTED', 'File storage not implemented yet'); }
-  async get(): Promise<never> { throw new AppError(501, 'NOT_IMPLEMENTED', 'File storage not implemented yet'); }
-  async stat(): Promise<null> { return null; }
-  async quarantine(): Promise<void> { throw new AppError(501, 'NOT_IMPLEMENTED', 'File storage not implemented yet'); }
-}
+import { Global, Module } from '@nestjs/common';
+import { APP_CONFIG, type AppConfig } from '../../common/config';
+import { FILE_STORE } from '../../common/contracts';
+import { LocalFileStore } from './local-file-store';
 
 @Global()
 @Module({
-  providers: [{ provide: FILE_STORE, useClass: StubFileStore }],
+  providers: [
+    // Local volume in v1. S3-compatible adapter is documented in s3-file-store.ts and not wired yet.
+    { provide: FILE_STORE, inject: [APP_CONFIG], useFactory: (cfg: AppConfig) => new LocalFileStore(cfg.SMS_FILE_STORAGE_DIR) },
+  ],
   exports: [FILE_STORE],
 })
 export class FilesModule {}
