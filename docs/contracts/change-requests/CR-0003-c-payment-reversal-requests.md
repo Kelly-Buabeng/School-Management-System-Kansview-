@@ -2,7 +2,7 @@
 
 - Raised by: Agent C (Finance), 2026-11-17
 - Affects: Agent A (schema), Agent C (finance), Agent E (payment screen shows "awaiting approval")
-- Status: **Proposed**
+- Status: **Accepted** by Orchestrator 2026-11-17, including the optional adjustments columns. Use `DEFAULT app.uuid_v7()` (CR-0001), not `uuidv7()`. Agent A adds it to the core schema.
 
 ## Problem
 
