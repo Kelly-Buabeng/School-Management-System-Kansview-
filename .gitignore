@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+/var/
+/storage/
+playwright-report/
+test-results/
+
+# Local agent worktrees and tool state (never commit)
+.claude/

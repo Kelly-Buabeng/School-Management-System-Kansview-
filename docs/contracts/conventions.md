@@ -116,10 +116,20 @@ Every error response is `application/problem+json`:
 - `If-Match: <version>` required on PATCH of students, guardians, staff, settings.
 - Large exports are async: `202 Accepted` + `Location: /api/v1/exports/{id}`.
 
-## 5. Git branching plan
+## 5. Git branching and commit naming (updated 2026-11-17 by the school)
 
-- `main`: protected, releases only, tagged `v1.0.0` etc.
-- Integration branch: in this session it is **`claude/sweet-gauss-um4n2e`** (the only branch this session may push to). If the school approves, a `develop` branch and per-agent branches can be added.
-- Agents work in isolated git worktrees on local branches `agent/<letter>-<topic>` (e.g. `agent/c-finance`), commit small, and hand back; the Orchestrator reviews the diff, checks ownership (`scripts/check-ownership.sh` fails if an agent touched paths it does not own), runs CI locally, and merges into the integration branch.
+**Rule: every branch name and every commit subject follows `featurebeingpushed-whatitdoes`**: the feature first, then a hyphen, then what the change does, all lower-case kebab-case.
+
+| Kind | Example |
+|---|---|
+| Branch | `finance-records-manual-payments-and-receipts` |
+| Branch | `database-creates-schema-migrations-and-id-functions` |
+| Commit subject | `finance-adds-duplicate-reference-warning` |
+| Commit subject | `promotion-fixes-undo-when-class-was-renamed` |
+
+- Commit body (optional) explains why, in plain sentences. Attribution trailers go at the end of the body.
+- Integration branch: **`claude/sweet-gauss-um4n2e`**. Feature branches are created from it, pushed to GitHub, and merged back into it by the Orchestrator after review, ownership check and tests.
+- Agents work in isolated git worktrees, one feature branch per agent task, e.g. `database-creates-schema-migrations-and-id-functions`, `frontend-builds-admin-app-on-mock-api`.
+- `main` stays protected; releases are merged there only with the school's approval.
 - Checkpoints are tagged `cp1` … `cp6` on the integration branch.
-- Commit style: Conventional Commits (`feat(finance): …`, `fix(security): …`).
+- Ownership: `scripts/check-ownership.sh <AGENT>` must pass before a branch is merged (see `/OWNERSHIP`).
