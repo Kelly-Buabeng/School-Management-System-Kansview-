@@ -1,0 +1,952 @@
+openapi: 3.1.0
+info:
+  title: Kansview School Management System API
+  version: 1.0.0-phase0
+  description: |
+    Back-office API for the school administrator, bursar, headteacher, registrar (and optional teacher role).
+    STATUS: Phase 0 contract, proposed. Frozen on approval; changes only through a change request.
+
+    Conventions (see docs/contracts/conventions.md):
+    - Money is integer pesewas (`*Pesewas`). Dates `YYYY-MM-DD`. Instants ISO 8601 UTC; display Africa/Accra.
+    - Every operation declares `x-permission` (see docs/contracts/rbac.md). No declaration = CI failure.
+    - `x-audit` marks operations that always write an audit event.
+    - `x-idempotent: true` operations REQUIRE the Idempotency-Key header.
+    - Errors are application/problem+json (Problem schema).
+    - Request bodies are strict: unknown properties are rejected.
+    Detailed request/response schemas for every operation are completed by the owning agent during Phase 1
+    as an additive change (new optional fields only); paths, methods, permissions and core schemas below are frozen.
+servers:
+  - url: /api/v1
+security:
+  - session: []
+tags:
+  - {name: auth}
+  - {name: users}
+  - {name: settings}
+  - {name: academic-setup}
+  - {name: students}
+  - {name: guardians}
+  - {name: emergency}
+  - {name: enrolment}
+  - {name: promotion}
+  - {name: withdrawals}
+  - {name: staff}
+  - {name: attendance}
+  - {name: academics}
+  - {name: welfare}
+  - {name: finance}
+  - {name: reports}
+  - {name: messages}
+  - {name: imports}
+  - {name: dashboard}
+  - {name: search}
+  - {name: files}
+  - {name: audit}
+  - {name: data-protection}
+  - {name: system}
+
+paths:
+  # ---------------- AUTH (Agent D) ----------------
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      x-permission: public
+      x-audit: login
+      summary: Username + password. Returns mfaRequired if TOTP is enabled or mandatory.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/LoginRequest'}}}}
+      responses:
+        '200': {description: Signed in or MFA step needed, content: {application/json: {schema: {$ref: '#/components/schemas/LoginResponse'}}}}
+        '401': {$ref: '#/components/responses/Problem'}
+        '423': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
+  /auth/mfa/verify:
+    post: {tags: [auth], operationId: verifyMfa, security: [], x-permission: mfa-pending-session, x-audit: login, summary: Submit TOTP or recovery code, responses: {'200': {$ref: '#/components/responses/Me'}, '401': {$ref: '#/components/responses/Problem'}}}
+  /auth/mfa/setup:
+    post: {tags: [auth], operationId: startMfaSetup, x-permission: self, summary: Returns otpauth URI + QR for enrolment, responses: {'200': {description: OK}}}
+  /auth/mfa/enable:
+    post: {tags: [auth], operationId: enableMfa, x-permission: self, x-audit: update, summary: Confirm first TOTP code; returns one-time recovery codes, responses: {'200': {description: OK}}}
+  /auth/mfa/disable:
+    post: {tags: [auth], operationId: disableMfa, x-permission: self, x-audit: update, summary: Not allowed for ADMIN/BURSAR, responses: {'204': {description: OK}, '422': {$ref: '#/components/responses/Problem'}}}
+  /auth/logout:
+    post: {tags: [auth], operationId: logout, x-permission: self, responses: {'204': {description: Signed out}}}
+  /auth/me:
+    get: {tags: [auth], operationId: getMe, x-permission: self, summary: Current user, roles, effective permissions, CSRF token, responses: {'200': {$ref: '#/components/responses/Me'}}}
+  /auth/password/change:
+    post: {tags: [auth], operationId: changePassword, x-permission: self, x-audit: update, responses: {'204': {description: Changed; other sessions revoked}}}
+  /auth/password/reset-request:
+    post: {tags: [auth], operationId: requestPasswordReset, security: [], x-permission: public, summary: Always 202 (no account enumeration), responses: {'202': {description: Accepted}}}
+  /auth/password/reset:
+    post: {tags: [auth], operationId: resetPassword, security: [], x-permission: public, x-audit: update, responses: {'204': {description: Reset}, '400': {$ref: '#/components/responses/Problem'}}}
+
+  # ---------------- USERS (Agent D) ----------------
+  /users:
+    get: {tags: [users], operationId: listUsers, x-permission: 'users:read', responses: {'200': {description: Page of users}}}
+    post: {tags: [users], operationId: createUser, x-permission: 'users:create', x-audit: create, responses: {'201': {description: Created with temporary password, must change at first login}}}
+  /users/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [users], operationId: getUser, x-permission: 'users:read', responses: {'200': {description: OK}}}
+    patch: {tags: [users], operationId: updateUser, x-permission: 'users:update', x-audit: update, summary: Roles, status, name, responses: {'200': {description: OK}}}
+  /users/{id}/force-logout:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [users], operationId: forceLogoutUser, x-permission: 'users:update', x-audit: update, responses: {'204': {description: All sessions revoked}}}
+  /users/{id}/unlock:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [users], operationId: unlockUser, x-permission: 'users:update', x-audit: update, responses: {'204': {description: OK}}}
+  /users/{id}/reset-mfa:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [users], operationId: resetUserMfa, x-permission: 'users:update', x-audit: update, responses: {'204': {description: OK}}}
+  /users/{id}/reset-password:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [users], operationId: adminResetPassword, x-permission: 'users:update', x-audit: update, responses: {'200': {description: One-time temporary password}}}
+
+  # ---------------- SETTINGS & ACADEMIC SETUP (Agent B) ----------------
+  /settings/school:
+    get: {tags: [settings], operationId: getSchoolProfile, x-permission: 'settings:read', responses: {'200': {description: OK}}}
+    patch: {tags: [settings], operationId: updateSchoolProfile, x-permission: 'settings:update', x-audit: update, responses: {'200': {description: OK}}}
+  /settings/school/logo:
+    put: {tags: [settings], operationId: uploadLogo, x-permission: 'settings:update', x-audit: update, requestBody: {content: {multipart/form-data: {schema: {type: object, properties: {file: {type: string, format: binary}}}}}}, responses: {'200': {description: OK}}}
+  /settings/policies:
+    get: {tags: [settings], operationId: getPolicies, x-permission: 'settings:read', responses: {'200': {description: All policy switches}}}
+    patch: {tags: [settings], operationId: updatePolicies, x-permission: 'settings:update', x-audit: update, responses: {'200': {description: OK}}}
+  /academic-years:
+    get: {tags: [academic-setup], operationId: listAcademicYears, x-permission: 'academic_setup:read', responses: {'200': {description: OK}}}
+    post: {tags: [academic-setup], operationId: createAcademicYear, x-permission: 'academic_setup:create', x-audit: create, summary: Creates year with its 3 terms, responses: {'201': {description: Created}}}
+  /academic-years/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [academic-setup], operationId: updateAcademicYear, x-permission: 'academic_setup:update', x-audit: update, responses: {'200': {description: OK}}}
+  /academic-years/{id}/set-current:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [academic-setup], operationId: setCurrentAcademicYear, x-permission: 'academic_setup:update', x-audit: update, responses: {'200': {description: OK}}}
+  /terms/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [academic-setup], operationId: updateTerm, x-permission: 'academic_setup:update', x-audit: update, responses: {'200': {description: OK}}}
+  /levels:
+    get: {tags: [academic-setup], operationId: listLevels, x-permission: 'academic_setup:read', responses: {'200': {description: OK}}}
+    post: {tags: [academic-setup], operationId: createLevel, x-permission: 'academic_setup:create', x-audit: create, responses: {'201': {description: Created}}}
+  /levels/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [academic-setup], operationId: updateLevel, x-permission: 'academic_setup:update', x-audit: update, responses: {'200': {description: OK}}}
+  /classes:
+    get: {tags: [academic-setup], operationId: listClasses, x-permission: 'academic_setup:read', parameters: [{name: academicYearId, in: query, schema: {type: string, format: uuid}}], responses: {'200': {description: OK, includes enrolled count and capacity}}}
+    post: {tags: [academic-setup], operationId: createClass, x-permission: 'academic_setup:create', x-audit: create, responses: {'201': {description: Created}}}
+  /classes/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [academic-setup], operationId: getClass, x-permission: 'academic_setup:read', responses: {'200': {description: OK}}}
+    patch: {tags: [academic-setup], operationId: updateClass, x-permission: 'academic_setup:update', x-audit: update, summary: Capacity, stream, class teacher, responses: {'200': {description: OK}}}
+  /classes/{id}/students:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [enrolment], operationId: listClassStudents, x-permission: 'enrolments:read', responses: {'200': {description: Current roll with roll numbers}}}
+  /classes/{id}/roll-numbers:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [enrolment], operationId: renumberClassRoll, x-permission: 'enrolments:update', x-audit: update, summary: Re-assign roll numbers (alphabetical or manual), responses: {'200': {description: OK}}}
+  /subjects:
+    get: {tags: [academic-setup], operationId: listSubjects, x-permission: 'academic_setup:read', responses: {'200': {description: OK}}}
+    post: {tags: [academic-setup], operationId: createSubject, x-permission: 'academic_setup:create', x-audit: create, responses: {'201': {description: Created}}}
+  /subjects/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [academic-setup], operationId: updateSubject, x-permission: 'academic_setup:update', x-audit: update, responses: {'200': {description: OK}}}
+  /levels/{id}/subjects:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put: {tags: [academic-setup], operationId: setLevelSubjects, x-permission: 'academic_setup:update', x-audit: update, responses: {'200': {description: OK}}}
+  /grading-scales:
+    get: {tags: [academic-setup], operationId: listGradingScales, x-permission: 'academic_setup:read', responses: {'200': {description: OK}}}
+    post: {tags: [academic-setup], operationId: createGradingScale, x-permission: 'settings:update', x-audit: create, responses: {'201': {description: Created}}}
+  /grading-scales/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put: {tags: [academic-setup], operationId: replaceGradingScale, x-permission: 'settings:update', x-audit: update, responses: {'200': {description: OK}}}
+
+  # ---------------- STUDENTS (Agent B) ----------------
+  /students:
+    get:
+      tags: [students]
+      operationId: listStudents
+      x-permission: 'students:read'
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+        - {name: q, in: query, schema: {type: string}}
+        - {name: classId, in: query, schema: {type: string, format: uuid}}
+        - {name: levelId, in: query, schema: {type: string, format: uuid}}
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/StudentStatus'}}
+      responses: {'200': {description: Page of StudentSummary}}
+    post:
+      tags: [students]
+      operationId: admitStudent
+      x-permission: 'students:create'
+      x-audit: create
+      summary: |
+        Admit a student. Atomically: generates the permanent studentCode, creates the first enrolment,
+        links/creates guardians, optional medical record and emergency contacts.
+        Returns 409 STUDENT_POSSIBLE_DUPLICATE unless `confirmNotDuplicate: true` with a reason.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdmitStudentRequest'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Student'}}}}
+        '409': {$ref: '#/components/responses/Problem'}
+  /students/duplicate-check:
+    post: {tags: [students], operationId: checkStudentDuplicate, x-permission: 'students:create', summary: 'Same name (fuzzy) + DOB + guardian phone -> candidates', responses: {'200': {description: List of possible matches}}}
+  /students/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [students], operationId: getStudent, x-permission: 'students:read', x-audit: view, responses: {'200': {description: Student (fields filtered by role), content: {application/json: {schema: {$ref: '#/components/schemas/Student'}}}}, '404': {$ref: '#/components/responses/Problem'}}}
+    patch: {tags: [students], operationId: updateStudent, x-permission: 'students:update', x-audit: update, parameters: [{$ref: '#/components/parameters/IfMatch'}], summary: studentCode is never editable, responses: {'200': {description: OK}, '412': {$ref: '#/components/responses/Problem'}}}
+  /students/{id}/archive:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [students], operationId: archiveStudent, x-permission: 'students:archive', x-audit: archive, summary: Soft delete with reason (e.g. admission entered by mistake), responses: {'204': {description: OK}}}
+  /students/{id}/photo:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put: {tags: [students], operationId: uploadStudentPhoto, x-permission: 'students:update', x-audit: update, requestBody: {content: {multipart/form-data: {schema: {type: object, properties: {file: {type: string, format: binary}}}}}}, responses: {'200': {description: OK}}}
+  /students/{id}/medical:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [students], operationId: getStudentMedical, x-permission: 'medical:read', x-audit: view, responses: {'200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/StudentMedical'}}}}}}
+    put: {tags: [students], operationId: putStudentMedical, x-permission: 'medical:update', x-audit: update, responses: {'200': {description: OK}}}
+  /students/{id}/documents:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [students], operationId: listStudentDocuments, x-permission: 'student_documents:read', responses: {'200': {description: OK}}}
+    post: {tags: [students], operationId: uploadStudentDocument, x-permission: 'student_documents:create', x-audit: create, summary: 'PDF/JPEG/PNG only, max 5 MB, scanned before available', requestBody: {content: {multipart/form-data: {schema: {type: object, required: [file, docType], properties: {file: {type: string, format: binary}, docType: {type: string, enum: [birth_certificate, previous_report, passport_photo, other]}, notes: {type: string, maxLength: 500}}}}}}, responses: {'201': {description: Accepted, scanStatus pending}, '415': {$ref: '#/components/responses/Problem'}, '413': {$ref: '#/components/responses/Problem'}}}
+  /students/{id}/documents/{documentId}/archive:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: documentId, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: {tags: [students], operationId: archiveStudentDocument, x-permission: 'student_documents:archive', x-audit: archive, responses: {'204': {description: OK}}}
+  /students/{id}/guardians:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [guardians], operationId: listStudentGuardians, x-permission: 'guardians:read', responses: {'200': {description: OK}}}
+    post: {tags: [guardians], operationId: linkGuardian, x-permission: 'guardians:update', x-audit: update, summary: Link existing guardianId or create new, with relationship flags, responses: {'201': {description: Linked}}}
+  /students/{id}/guardians/{guardianId}:
+    parameters: [{$ref: '#/components/parameters/Id'}, {$ref: '#/components/parameters/GuardianId'}]
+    patch: {tags: [guardians], operationId: updateGuardianLink, x-permission: 'guardians:update', x-audit: update, summary: relationship, isPrimary, isFeePayer, canPickUp, receivesSms, responses: {'200': {description: OK}}}
+    delete: {tags: [guardians], operationId: unlinkGuardian, x-permission: 'guardians:update', x-audit: update, summary: Removes the link only (guardian record kept), responses: {'204': {description: OK}}}
+  /students/{id}/siblings:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [students], operationId: listSiblings, x-permission: 'students:read', summary: Derived from shared guardians, responses: {'200': {description: OK}}}
+  /students/{id}/status-history:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [students], operationId: getStudentStatusHistory, x-permission: 'students:read', responses: {'200': {description: OK}}}
+
+  # ---------------- EMERGENCY (Agent B) ----------------
+  /students/{id}/emergency-view:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [emergency], operationId: getEmergencyView, x-permission: 'emergency_view:read', x-audit: emergency_view, summary: 'Photo, class, medical alert summary, allergies, ordered contacts with tel: links, pickups, recent contact log', responses: {'200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/EmergencyView'}}}}}}
+  /students/{id}/emergency-contacts:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [emergency], operationId: listEmergencyContacts, x-permission: 'students:read', responses: {'200': {description: OK}}}
+    put: {tags: [emergency], operationId: replaceEmergencyContacts, x-permission: 'students:update', x-audit: update, summary: Replace the ordered list in one transaction, responses: {'200': {description: OK}}}
+  /students/{id}/emergency-contact-logs:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [emergency], operationId: listEmergencyContactLogs, x-permission: 'emergency_log:read', responses: {'200': {description: OK}}}
+    post: {tags: [emergency], operationId: logEmergencyContact, x-permission: 'emergency_log:create', responses: {'201': {description: Logged}}}
+  /students/{id}/pickups:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [emergency], operationId: listPickups, x-permission: 'pickups:read', responses: {'200': {description: OK}}}
+    post: {tags: [emergency], operationId: addPickup, x-permission: 'pickups:create', x-audit: create, responses: {'201': {description: Created}}}
+  /students/{id}/pickups/{pickupId}:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: pickupId, in: path, required: true, schema: {type: string, format: uuid}}]
+    patch: {tags: [emergency], operationId: updatePickup, x-permission: 'pickups:update', x-audit: update, responses: {'200': {description: OK}}}
+    delete: {tags: [emergency], operationId: archivePickup, x-permission: 'pickups:archive', x-audit: archive, responses: {'204': {description: OK}}}
+
+  # ---------------- GUARDIANS (Agent B; Ghana Card reveal enforced by D) ----------------
+  /guardians:
+    get: {tags: [guardians], operationId: listGuardians, x-permission: 'guardians:read', parameters: [{name: q, in: query, schema: {type: string}}, {name: phone, in: query, schema: {type: string}}], responses: {'200': {description: OK}}}
+    post: {tags: [guardians], operationId: createGuardian, x-permission: 'guardians:create', x-audit: create, responses: {'201': {description: Created}}}
+  /guardians/{guardianId}:
+    parameters: [{$ref: '#/components/parameters/GuardianId'}]
+    get: {tags: [guardians], operationId: getGuardian, x-permission: 'guardians:read', x-audit: view, responses: {'200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Guardian'}}}}}}
+    patch: {tags: [guardians], operationId: updateGuardian, x-permission: 'guardians:update', x-audit: update, parameters: [{$ref: '#/components/parameters/IfMatch'}], responses: {'200': {description: OK}}}
+  /guardians/{guardianId}/students:
+    parameters: [{$ref: '#/components/parameters/GuardianId'}]
+    get: {tags: [guardians], operationId: listGuardianStudents, x-permission: 'guardians:read', responses: {'200': {description: OK}}}
+  /guardians/{guardianId}/ghana-card/reveal:
+    parameters: [{$ref: '#/components/parameters/GuardianId'}]
+    post: {tags: [guardians], operationId: revealGuardianGhanaCard, x-permission: 'ghana_card:reveal', x-audit: reveal_sensitive, summary: Reason required, responses: {'200': {description: Full number}}}
+  /guardians/merge:
+    post: {tags: [guardians], operationId: mergeGuardians, x-permission: 'guardians:update', x-audit: update, summary: Merge duplicate guardian records (keeps both rows; loser archived and redirected), responses: {'200': {description: OK}}}
+
+  # ---------------- ENROLMENT & PROMOTION (Agent B) ----------------
+  /students/{id}/enrolments:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [enrolment], operationId: listStudentEnrolments, x-permission: 'enrolments:read', responses: {'200': {description: Full dated history}}}
+  /students/{id}/change-class:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [enrolment], operationId: changeClass, x-permission: 'enrolments:update', x-audit: update, summary: Closes current enrolment and opens a new one (e.g. stream change); capacity checked, responses: {'201': {description: OK}, '422': {$ref: '#/components/responses/Problem'}}}
+  /promotion-runs:
+    get: {tags: [promotion], operationId: listPromotionRuns, x-permission: 'promotion:read', responses: {'200': {description: OK}}}
+    post: {tags: [promotion], operationId: createPromotionRun, x-permission: 'promotion:create', x-audit: create, summary: Build a draft preview for chosen classes into the target year, with arrears flags per policy, responses: {'201': {description: Draft run with items, content: {application/json: {schema: {$ref: '#/components/schemas/PromotionRun'}}}}}}
+  /promotion-runs/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [promotion], operationId: getPromotionRun, x-permission: 'promotion:read', responses: {'200': {description: OK}}}
+  /promotion-runs/{id}/items/{itemId}:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: itemId, in: path, required: true, schema: {type: string, format: uuid}}]
+    patch: {tags: [promotion], operationId: updatePromotionItem, x-permission: 'promotion:update', summary: Set exception action (repeat/skip/withdraw/transfer_out/graduate), target class, override reason, responses: {'200': {description: OK}}}
+  /promotion-runs/{id}/commit:
+    parameters: [{$ref: '#/components/parameters/Id'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+    post: {tags: [promotion], operationId: commitPromotionRun, x-permission: 'promotion:commit', x-audit: update, x-idempotent: true, summary: Applies all items in one transaction; blocked items (policy=block) must have override reasons, responses: {'200': {description: Committed}, '422': {$ref: '#/components/responses/Problem'}}}
+  /promotion-runs/{id}/undo:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [promotion], operationId: undoPromotionRun, x-permission: 'promotion:undo', x-audit: update, summary: Only within undoDeadline and if no dependent records; reason required, responses: {'200': {description: Undone}, '422': {$ref: '#/components/responses/Problem'}}}
+
+  # ---------------- WITHDRAWALS (Agent B; letter PDF by F) ----------------
+  /students/{id}/withdrawals:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [withdrawals], operationId: startWithdrawal, x-permission: 'withdrawals:create', x-audit: create, responses: {'201': {description: Pending clearance, includes fee balance from finance}}}
+  /withdrawals:
+    get: {tags: [withdrawals], operationId: listWithdrawals, x-permission: 'withdrawals:read', responses: {'200': {description: OK}}}
+  /withdrawals/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [withdrawals], operationId: getWithdrawal, x-permission: 'withdrawals:read', responses: {'200': {description: OK}}}
+  /withdrawals/{id}/clearance/{item}:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: item, in: path, required: true, schema: {type: string, enum: [fees, books, uniform, property, library]}}]
+    put: {tags: [withdrawals], operationId: setClearanceItem, x-permission: 'withdrawals:update', x-audit: update, summary: fees item requires BURSAR or ADMIN, responses: {'200': {description: OK}}}
+  /withdrawals/{id}/complete:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [withdrawals], operationId: completeWithdrawal, x-permission: 'withdrawals:complete', x-audit: update, responses: {'200': {description: Student status changed, enrolment closed}}}
+  /withdrawals/{id}/cancel:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [withdrawals], operationId: cancelWithdrawal, x-permission: 'withdrawals:update', x-audit: update, responses: {'200': {description: OK}}}
+  /withdrawals/{id}/transfer-letter.pdf:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [withdrawals], operationId: getTransferLetter, x-permission: 'withdrawals:export', x-audit: export, responses: {'200': {description: PDF, content: {application/pdf: {}}}}}
+
+  # ---------------- STAFF (Agent B) ----------------
+  /staff:
+    get: {tags: [staff], operationId: listStaff, x-permission: 'staff:read', responses: {'200': {description: OK}}}
+    post: {tags: [staff], operationId: createStaff, x-permission: 'staff:create', x-audit: create, responses: {'201': {description: Created}}}
+  /staff/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [staff], operationId: getStaff, x-permission: 'staff:read', responses: {'200': {description: OK}}}
+    patch: {tags: [staff], operationId: updateStaff, x-permission: 'staff:update', x-audit: update, parameters: [{$ref: '#/components/parameters/IfMatch'}], responses: {'200': {description: OK}}}
+  /staff/{id}/archive:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [staff], operationId: archiveStaff, x-permission: 'staff:archive', x-audit: archive, responses: {'204': {description: OK}}}
+  /staff/{id}/emergency-contacts:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put: {tags: [staff], operationId: replaceStaffEmergencyContacts, x-permission: 'staff:update', x-audit: update, responses: {'200': {description: OK}}}
+  /staff/{id}/assignments:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [staff], operationId: listStaffAssignments, x-permission: 'staff:read', responses: {'200': {description: OK}}}
+    put: {tags: [staff], operationId: replaceStaffAssignments, x-permission: 'staff:update', x-audit: update, responses: {'200': {description: OK}}}
+  /staff/{id}/sensitive/reveal:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [staff], operationId: revealStaffSensitive, x-permission: 'staff_sensitive:reveal', x-audit: reveal_sensitive, responses: {'200': {description: Ghana Card, SSNIT}}}
+
+  # ---------------- ATTENDANCE (Agent B; SMS via F) ----------------
+  /classes/{id}/attendance:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: date, in: query, required: true, schema: {type: string, format: date}}]
+    get: {tags: [attendance], operationId: getClassAttendance, x-permission: 'attendance:read', responses: {'200': {description: Register for the day (pre-filled present if not yet taken)}}}
+    put: {tags: [attendance], operationId: saveClassAttendance, x-permission: 'attendance:update', x-audit: update, summary: Saves the register; enqueues absence SMS if policy on (once per student per day), responses: {'200': {description: OK}}}
+  /attendance/summary:
+    get: {tags: [attendance], operationId: getAttendanceSummary, x-permission: 'attendance:read', parameters: [{name: from, in: query, schema: {type: string, format: date}}, {name: to, in: query, schema: {type: string, format: date}}, {name: classId, in: query, schema: {type: string, format: uuid}}, {$ref: '#/components/parameters/Format'}], responses: {'200': {description: Per student/class rates}}}
+
+  # ---------------- ACADEMICS (Agent B; PDF via F) ----------------
+  /classes/{id}/scores:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: termId, in: query, required: true, schema: {type: string, format: uuid}}, {name: subjectId, in: query, required: true, schema: {type: string, format: uuid}}]
+    get: {tags: [academics], operationId: getClassScores, x-permission: 'academics:read', responses: {'200': {description: OK}}}
+    put: {tags: [academics], operationId: saveClassScores, x-permission: 'academics:update', x-audit: update, summary: Rejected if term scores are locked, responses: {'200': {description: OK}, '423': {$ref: '#/components/responses/Problem'}}}
+  /terms/{id}/scores/lock:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [academics], operationId: lockTermScores, x-permission: 'academics:publish', x-audit: update, responses: {'200': {description: OK}}}
+  /terms/{id}/report-cards/generate:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [academics], operationId: generateReportCards, x-permission: 'academics:update', summary: Computes totals, grades, positions for a class; creates drafts, responses: {'202': {description: Job accepted}}}
+  /report-cards:
+    get: {tags: [academics], operationId: listReportCards, x-permission: 'academics:read', parameters: [{name: termId, in: query, required: true, schema: {type: string, format: uuid}}, {name: classId, in: query, schema: {type: string, format: uuid}}], responses: {'200': {description: OK}}}
+  /report-cards/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [academics], operationId: updateReportCardRemarks, x-permission: 'academics:update', x-audit: update, summary: Teacher remark, head remark, conduct, interest, responses: {'200': {description: OK}}}
+  /report-cards/publish:
+    post: {tags: [academics], operationId: publishReportCards, x-permission: 'academics:publish', x-audit: update, responses: {'200': {description: OK}}}
+  /report-cards/{id}/pdf:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [academics], operationId: getReportCardPdf, x-permission: 'academics:export', x-audit: export, responses: {'200': {description: PDF, content: {application/pdf: {}}}}}
+  /report-cards/class-pdf:
+    get: {tags: [academics], operationId: getClassReportCardsPdf, x-permission: 'academics:export', x-audit: export, parameters: [{name: termId, in: query, required: true, schema: {type: string, format: uuid}}, {name: classId, in: query, required: true, schema: {type: string, format: uuid}}], responses: {'202': {description: Export job (one PDF, one page per student)}}}
+
+  # ---------------- WELFARE (Agent B) ----------------
+  /students/{id}/incidents:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [welfare], operationId: listStudentIncidents, x-permission: 'incidents:read', x-audit: view, responses: {'200': {description: OK}}}
+    post: {tags: [welfare], operationId: createIncident, x-permission: 'incidents:create', x-audit: create, responses: {'201': {description: Created}}}
+  /incidents/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [welfare], operationId: updateIncident, x-permission: 'incidents:update', x-audit: update, responses: {'200': {description: OK}}}
+  /incidents:
+    get: {tags: [welfare], operationId: listIncidents, x-permission: 'incidents:read', responses: {'200': {description: OK}}}
+  /students/{id}/health-visits:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [welfare], operationId: listHealthVisits, x-permission: 'health_visits:read', x-audit: view, responses: {'200': {description: OK}}}
+    post: {tags: [welfare], operationId: createHealthVisit, x-permission: 'health_visits:create', x-audit: create, responses: {'201': {description: Created}}}
+  /health-visits/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [welfare], operationId: updateHealthVisit, x-permission: 'health_visits:update', x-audit: update, responses: {'200': {description: OK}}}
+
+  # ---------------- FINANCE (Agent C) ----------------
+  /fee-items:
+    get: {tags: [finance], operationId: listFeeItems, x-permission: 'fee_structures:read', responses: {'200': {description: OK}}}
+    post: {tags: [finance], operationId: createFeeItem, x-permission: 'fee_structures:create', x-audit: create, responses: {'201': {description: Created}}}
+  /fee-items/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [finance], operationId: updateFeeItem, x-permission: 'fee_structures:update', x-audit: update, responses: {'200': {description: OK}}}
+  /fee-structures:
+    get: {tags: [finance], operationId: listFeeStructures, x-permission: 'fee_structures:read', parameters: [{name: termId, in: query, schema: {type: string, format: uuid}}], responses: {'200': {description: OK}}}
+    post: {tags: [finance], operationId: createFeeStructure, x-permission: 'fee_structures:create', x-audit: create, summary: Draft; can copy from a previous term, responses: {'201': {description: Created}}}
+  /fee-structures/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getFeeStructure, x-permission: 'fee_structures:read', responses: {'200': {description: OK}}}
+    put: {tags: [finance], operationId: replaceFeeStructureLines, x-permission: 'fee_structures:update', x-audit: update, summary: Only while draft, responses: {'200': {description: OK}, '422': {$ref: '#/components/responses/Problem'}}}
+  /fee-structures/{id}/activate:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [finance], operationId: activateFeeStructure, x-permission: 'fee_structures:activate', x-audit: approve, responses: {'200': {description: OK}}}
+  /students/{id}/optional-items:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put: {tags: [finance], operationId: setStudentOptionalItems, x-permission: 'fee_structures:update', x-audit: update, summary: Transport/feeding opt-ins per term, responses: {'200': {description: OK}}}
+  /invoices/generate:
+    post:
+      tags: [finance]
+      operationId: generateInvoices
+      x-permission: 'invoices:create'
+      x-audit: create
+      x-idempotent: true
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      summary: For a term and scope (student, class, level, whole school). `dryRun=true` returns a preview with totals and problems; skips students already invoiced.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/GenerateInvoicesRequest'}}}}
+      responses: {'200': {description: Preview (dry run)}, '202': {description: Generation job accepted}}
+  /invoices:
+    get: {tags: [finance], operationId: listInvoices, x-permission: 'invoices:read', parameters: [{name: termId, in: query, schema: {type: string, format: uuid}}, {name: classId, in: query, schema: {type: string, format: uuid}}, {name: studentId, in: query, schema: {type: string, format: uuid}}, {$ref: '#/components/parameters/Page'}], responses: {'200': {description: OK}}}
+  /invoices/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getInvoice, x-permission: 'invoices:read', responses: {'200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Invoice'}}}}}}
+  /invoices/{id}/void:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [finance], operationId: voidInvoice, x-permission: 'invoices:void', x-audit: reverse, summary: Posts reversal ledger entries; reason required; blocked if payments allocated (re-allocate first), responses: {'200': {description: OK}, '422': {$ref: '#/components/responses/Problem'}}}
+  /invoices/{id}/pdf:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getInvoicePdf, x-permission: 'invoices:export', x-audit: export, responses: {'200': {description: PDF, content: {application/pdf: {}}}}}
+  /payments/duplicate-check:
+    get: {tags: [finance], operationId: checkPaymentDuplicate, x-permission: 'payments:create', parameters: [{name: method, in: query, required: true, schema: {$ref: '#/components/schemas/PaymentMethod'}}, {name: referenceNo, in: query, required: true, schema: {type: string}}], summary: Called as the bursar types, responses: {'200': {description: Matching existing payments (may be empty)}}}
+  /payments:
+    get: {tags: [finance], operationId: listPayments, x-permission: 'payments:read', parameters: [{name: from, in: query, schema: {type: string, format: date}}, {name: to, in: query, schema: {type: string, format: date}}, {name: method, in: query, schema: {$ref: '#/components/schemas/PaymentMethod'}}, {name: studentId, in: query, schema: {type: string, format: uuid}}, {name: idempotencyKey, in: query, schema: {type: string}}, {$ref: '#/components/parameters/Page'}], responses: {'200': {description: OK}}}
+    post:
+      tags: [finance]
+      operationId: recordPayment
+      x-permission: 'payments:create'
+      x-audit: create
+      x-idempotent: true
+      summary: |
+        Manual payment entry by the bursar. One transaction: payment + receipt number + allocations + ledger entries.
+        Default allocation is oldest-outstanding-first by fee item priority; explicit allocations allowed.
+        Any excess becomes credit (unallocated). Returns 409 PAYMENT_DUPLICATE_REFERENCE if method+reference already exists,
+        unless `confirmDuplicate: true` with `duplicateOverrideReason`.
+        Replaying the same Idempotency-Key with the same body returns the original 201; a different body returns 422.
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordPaymentRequest'}}}}
+      responses:
+        '201': {description: Recorded, content: {application/json: {schema: {$ref: '#/components/schemas/Payment'}}}}
+        '409': {$ref: '#/components/responses/Problem'}
+        '422': {$ref: '#/components/responses/Problem'}
+  /payments/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getPayment, x-permission: 'payments:read', responses: {'200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Payment'}}}}}}
+  /payments/{id}/attachment:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put: {tags: [finance], operationId: attachPaymentEvidence, x-permission: 'payments:create', x-audit: update, summary: MoMo screenshot or bank slip (image/PDF, 5 MB), only before cash-up close, responses: {'200': {description: OK}}}
+  /payments/{id}/reverse:
+    parameters: [{$ref: '#/components/parameters/Id'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+    post: {tags: [finance], operationId: reversePayment, x-permission: 'payments:reverse', x-audit: reverse, x-idempotent: true, summary: Reason required. After the day's cash-up is closed, creates a pending request that ADMIN approves, responses: {'200': {description: Reversed}, '202': {description: Awaiting approval}}}
+  /payments/{id}/reverse/approve:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [finance], operationId: approvePaymentReversal, x-permission: 'payments:reverse_approve', x-audit: approve, responses: {'200': {description: Reversed}}}
+  /payments/{id}/reallocate:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [finance], operationId: reallocatePayment, x-permission: 'payments:create', x-audit: update, summary: Appends negative + new allocation rows, responses: {'200': {description: OK}}}
+  /payments/{id}/receipt.pdf:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getReceiptPdf, x-permission: 'payments:read', x-audit: export, summary: Reprints are marked "COPY"; reversed receipts marked "REVERSED", responses: {'200': {description: PDF, content: {application/pdf: {}}}}}
+  /adjustments:
+    get: {tags: [finance], operationId: listAdjustments, x-permission: 'adjustments:read', parameters: [{name: status, in: query, schema: {type: string, enum: [pending, approved, rejected, reversed]}}], responses: {'200': {description: OK}}}
+    post: {tags: [finance], operationId: requestAdjustment, x-permission: 'adjustments:create', x-audit: create, x-idempotent: true, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdjustmentRequest'}}}}, responses: {'201': {description: Pending approval}}}
+  /adjustments/{id}/approve:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [finance], operationId: approveAdjustment, x-permission: 'adjustments:approve', x-audit: approve, summary: Approver must differ from requester; posts ledger entry, responses: {'200': {description: OK}, '403': {$ref: '#/components/responses/Problem'}}}
+  /adjustments/{id}/reject:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [finance], operationId: rejectAdjustment, x-permission: 'adjustments:approve', x-audit: update, responses: {'200': {description: OK}}}
+  /adjustments/{id}/reverse:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [finance], operationId: reverseAdjustment, x-permission: 'adjustments:approve', x-audit: reverse, responses: {'200': {description: OK}}}
+  /students/{id}/ledger:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getStudentLedger, x-permission: 'balances:read', responses: {'200': {description: Entries with running balance}}}
+  /students/{id}/balance:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getStudentBalance, x-permission: 'balances:read', responses: {'200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Balance'}}}}}}
+  /students/{id}/statement.pdf:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: from, in: query, schema: {type: string, format: date}}, {name: to, in: query, schema: {type: string, format: date}}]
+    get: {tags: [finance], operationId: getStudentStatementPdf, x-permission: 'balances:export', x-audit: export, responses: {'200': {description: PDF, content: {application/pdf: {}}}}}
+  /students/{id}/arrears-notice.pdf:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getArrearsNoticePdf, x-permission: 'balances:export', x-audit: export, responses: {'200': {description: PDF, content: {application/pdf: {}}}}}
+  /guardians/{guardianId}/balance:
+    parameters: [{$ref: '#/components/parameters/GuardianId'}]
+    get: {tags: [finance], operationId: getGuardianBalance, x-permission: 'balances:read', summary: All children where guardian is fee payer, responses: {'200': {description: OK}}}
+  /guardians/{guardianId}/statement.pdf:
+    parameters: [{$ref: '#/components/parameters/GuardianId'}]
+    get: {tags: [finance], operationId: getGuardianStatementPdf, x-permission: 'balances:export', x-audit: export, responses: {'200': {description: PDF, content: {application/pdf: {}}}}}
+  /balances/classes:
+    get: {tags: [finance], operationId: getClassBalances, x-permission: 'balances:read', parameters: [{name: termId, in: query, schema: {type: string, format: uuid}}], responses: {'200': {description: Per-class billed, paid, outstanding}}}
+  /balances/school:
+    get: {tags: [finance], operationId: getSchoolBalance, x-permission: 'balances:read', responses: {'200': {description: Whole-school totals}}}
+  /cash-ups:
+    get: {tags: [finance], operationId: listCashUps, x-permission: 'cash_up:read', responses: {'200': {description: OK}}}
+    post: {tags: [finance], operationId: openCashUp, x-permission: 'cash_up:create', x-audit: create, responses: {'201': {description: Opened for business date}}}
+  /cash-ups/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getCashUp, x-permission: 'cash_up:read', summary: Expected totals by method, responses: {'200': {description: OK}}}
+  /cash-ups/{id}/close:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [finance], operationId: closeCashUp, x-permission: 'cash_up:close', x-audit: update, summary: Counted amounts per method, variance and note, responses: {'200': {description: Closed}}}
+
+  # ---------------- REPORTS (Agent C finance; Agent B others) ----------------
+  /reports/collections:
+    get: {tags: [reports], operationId: reportCollections, x-permission: 'finance_reports:read', x-audit: export, parameters: [{name: groupBy, in: query, schema: {type: string, enum: [day, term, method, class, fee_item]}}, {name: from, in: query, schema: {type: string, format: date}}, {name: to, in: query, schema: {type: string, format: date}}, {$ref: '#/components/parameters/Format'}], responses: {'200': {description: JSON, or file for xlsx/pdf}, '202': {description: Export job for large files}}}
+  /reports/aging:
+    get: {tags: [reports], operationId: reportAging, x-permission: 'finance_reports:read', x-audit: export, summary: 'Buckets: current term, 1 term, 2 terms, 3+ terms', parameters: [{$ref: '#/components/parameters/Format'}], responses: {'200': {description: OK}}}
+  /reports/defaulters:
+    get: {tags: [reports], operationId: reportDefaulters, x-permission: 'finance_reports:read', x-audit: export, parameters: [{name: minOutstandingPesewas, in: query, schema: {type: integer}}, {name: classId, in: query, schema: {type: string, format: uuid}}, {$ref: '#/components/parameters/Format'}], responses: {'200': {description: OK}}}
+  /reports/daily-cash-up:
+    get: {tags: [reports], operationId: reportDailyCashUp, x-permission: 'finance_reports:read', x-audit: export, parameters: [{name: date, in: query, required: true, schema: {type: string, format: date}}, {$ref: '#/components/parameters/Format'}], responses: {'200': {description: OK}}}
+  /reports/reconciliation:
+    get: {tags: [reports], operationId: reportReconciliation, x-permission: 'finance_reports:read', x-audit: export, summary: 'Receipts sequence check (no gaps), totals by method vs cash-ups, reversals list', parameters: [{name: from, in: query, schema: {type: string, format: date}}, {name: to, in: query, schema: {type: string, format: date}}, {$ref: '#/components/parameters/Format'}], responses: {'200': {description: OK}}}
+  /reports/enrolment:
+    get: {tags: [reports], operationId: reportEnrolment, x-permission: 'students:export', x-audit: export, parameters: [{$ref: '#/components/parameters/Format'}], responses: {'200': {description: OK}}}
+  /reports/class-list:
+    get: {tags: [reports], operationId: reportClassList, x-permission: 'students:export', x-audit: export, parameters: [{name: classId, in: query, required: true, schema: {type: string, format: uuid}}, {$ref: '#/components/parameters/Format'}], responses: {'200': {description: OK}}}
+  /exports/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [reports], operationId: getExport, x-permission: owner-of-export, responses: {'200': {description: Status and download link when ready}}}
+  /exports/{id}/download:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [reports], operationId: downloadExport, x-permission: owner-of-export, x-audit: export, summary: Files expire after 24 h, responses: {'200': {description: File}}}
+
+  # ---------------- MESSAGES (Agent F) ----------------
+  /message-templates:
+    get: {tags: [messages], operationId: listMessageTemplates, x-permission: 'templates:read', responses: {'200': {description: OK}}}
+    post: {tags: [messages], operationId: createMessageTemplate, x-permission: 'templates:create', x-audit: create, responses: {'201': {description: Created}}}
+  /message-templates/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [messages], operationId: updateMessageTemplate, x-permission: 'templates:update', x-audit: update, responses: {'200': {description: OK}}}
+  /messages/preview:
+    post: {tags: [messages], operationId: previewMessage, x-permission: 'messages:send', summary: Recipient count, sample rendered messages, SMS segment count and estimated cost, responses: {'200': {description: OK}}}
+  /messages:
+    get: {tags: [messages], operationId: listMessages, x-permission: 'messages:read', responses: {'200': {description: OK}}}
+    post: {tags: [messages], operationId: sendMessage, x-permission: 'messages:send', x-audit: create, x-idempotent: true, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], summary: 'Audience = student(s), class, level, whole school, or defaulters. kind=emergency needs messages:emergency and skips approval. Bulk > 50 needs approval unless ADMIN/HEADTEACHER.', requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SendMessageRequest'}}}}, responses: {'202': {description: Queued or awaiting approval}}}
+  /messages/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [messages], operationId: getMessage, x-permission: 'messages:read', responses: {'200': {description: OK with delivery counts}}}
+  /messages/{id}/approve:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [messages], operationId: approveMessage, x-permission: 'messages:bulk_approve', x-audit: approve, responses: {'200': {description: OK}}}
+  /messages/{id}/recipients:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [messages], operationId: listMessageRecipients, x-permission: 'messages:read', responses: {'200': {description: Delivery log}}}
+  /messages/{id}/retry-failed:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [messages], operationId: retryFailedRecipients, x-permission: 'messages:send', responses: {'202': {description: OK}}}
+
+  # ---------------- IMPORTS (Agent G) ----------------
+  /imports/templates/{type}:
+    parameters: [{name: type, in: path, required: true, schema: {type: string, enum: [students_guardians, staff, opening_balances]}}]
+    get: {tags: [imports], operationId: downloadImportTemplate, x-permission: 'imports:create', responses: {'200': {description: XLSX template with instructions sheet}}}
+  /imports:
+    get: {tags: [imports], operationId: listImports, x-permission: 'imports:read', responses: {'200': {description: OK}}}
+    post: {tags: [imports], operationId: uploadImport, x-permission: 'imports:create', x-audit: create, requestBody: {content: {multipart/form-data: {schema: {type: object, required: [file, type], properties: {file: {type: string, format: binary}, type: {type: string, enum: [students_guardians, staff, opening_balances]}}}}}}, responses: {'201': {description: Uploaded}}}
+  /imports/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [imports], operationId: getImport, x-permission: 'imports:read', responses: {'200': {description: Status and totals (valid, warnings, errors, duplicates)}}}
+  /imports/{id}/validate:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [imports], operationId: validateImport, x-permission: 'imports:create', summary: Dry run; nothing written outside staging, responses: {'202': {description: Job accepted}}}
+  /imports/{id}/rows:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: status, in: query, schema: {type: string, enum: [valid, warning, error, duplicate]}}, {$ref: '#/components/parameters/Page'}]
+    get: {tags: [imports], operationId: listImportRows, x-permission: 'imports:read', responses: {'200': {description: Preview rows with messages}}}
+  /imports/{id}/rows/{rowNumber}:
+    parameters: [{$ref: '#/components/parameters/Id'}, {name: rowNumber, in: path, required: true, schema: {type: integer}}]
+    patch: {tags: [imports], operationId: resolveImportRow, x-permission: 'imports:create', summary: 'Mark duplicate as "link to existing", "create new" or "skip"', responses: {'200': {description: OK}}}
+  /imports/{id}/error-report.xlsx:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [imports], operationId: downloadImportErrorReport, x-permission: 'imports:read', responses: {'200': {description: Original rows plus an Errors column}}}
+  /imports/{id}/commit:
+    parameters: [{$ref: '#/components/parameters/Id'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+    post: {tags: [imports], operationId: commitImport, x-permission: 'imports:commit', x-audit: create, x-idempotent: true, summary: Only valid/resolved rows; batched; resumable, responses: {'202': {description: Job accepted}}}
+
+  # ---------------- DASHBOARD & SEARCH (Agent B; finance widgets call C services) ----------------
+  /dashboard:
+    get: {tags: [dashboard], operationId: getDashboard, x-permission: 'dashboard:read', summary: 'Widgets filtered by role: enrolment by class, collection vs target, arrears, attendance trend, birthdays (next 14 days)', responses: {'200': {description: OK}}}
+  /search:
+    get: {tags: [search], operationId: globalSearch, x-permission: 'search:read', parameters: [{name: q, in: query, required: true, schema: {type: string, minLength: 2, maxLength: 100}}, {name: limit, in: query, schema: {type: integer, maximum: 20, default: 10}}], summary: 'Students by name/code/class, guardians by name/phone, staff by name, receipts by number. Target p95 < 300 ms.', responses: {'200': {description: Grouped results, content: {application/json: {schema: {$ref: '#/components/schemas/SearchResults'}}}}}}
+
+  # ---------------- FILES (Agent F store, D pipeline) ----------------
+  /files/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [files], operationId: downloadFile, x-permission: inherits-from-owning-record, x-audit: view, summary: 'Served with Content-Disposition: attachment, nosniff; only scanStatus=clean', responses: {'200': {description: File}, '404': {$ref: '#/components/responses/Problem'}}}
+
+  # ---------------- AUDIT & DATA PROTECTION (Agent D) ----------------
+  /audit-events:
+    get: {tags: [audit], operationId: listAuditEvents, x-permission: 'audit:read', parameters: [{name: actorUserId, in: query, schema: {type: string, format: uuid}}, {name: studentId, in: query, schema: {type: string, format: uuid}}, {name: action, in: query, schema: {type: string}}, {name: from, in: query, schema: {type: string, format: date-time}}, {name: to, in: query, schema: {type: string, format: date-time}}, {$ref: '#/components/parameters/Page'}], responses: {'200': {description: OK}}}
+  /audit-events/verify:
+    post: {tags: [audit], operationId: verifyAuditChain, x-permission: 'audit:read', responses: {'200': {description: Chain intact or first broken event id}}}
+  /data-subject-requests:
+    get: {tags: [data-protection], operationId: listDataSubjectRequests, x-permission: 'dpa:read', responses: {'200': {description: OK}}}
+    post: {tags: [data-protection], operationId: createDataSubjectRequest, x-permission: 'dpa:create', x-audit: create, responses: {'201': {description: Logged with due date}}}
+  /data-subject-requests/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch: {tags: [data-protection], operationId: updateDataSubjectRequest, x-permission: 'dpa:update', x-audit: update, responses: {'200': {description: OK}}}
+  /students/{id}/subject-access-export:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [data-protection], operationId: exportStudentData, x-permission: 'dpa:export', x-audit: export, summary: 'Full data pack (PDF + JSON) for a subject access request', responses: {'202': {description: Export job}}}
+  /retention/candidates:
+    get: {tags: [data-protection], operationId: listRetentionCandidates, x-permission: 'dpa:read', summary: Records past their retention period, responses: {'200': {description: OK}}}
+  /students/{id}/anonymise:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post: {tags: [data-protection], operationId: anonymiseStudent, x-permission: 'dpa:anonymise', x-audit: update, summary: 'Replaces personal fields; keeps studentCode and financial totals for statutory retention; irreversible, needs typed confirmation', responses: {'200': {description: OK}}}
+
+  # ---------------- SYSTEM (Agent H) ----------------
+  /health/live:
+    get: {tags: [system], operationId: healthLive, security: [], x-permission: public, responses: {'200': {description: Process up}}}
+  /health/ready:
+    get: {tags: [system], operationId: healthReady, security: [], x-permission: public, summary: 'DB reachable, migrations current, queue running (no details leaked)', responses: {'200': {description: Ready}, '503': {description: Not ready}}}
+  /system/status:
+    get: {tags: [system], operationId: systemStatus, x-permission: 'system:read', summary: 'Last backup time and result, disk space, queue backlog, SMS provider status, version', responses: {'200': {description: OK}}}
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: __Host-sms_session
+      description: HttpOnly, Secure, SameSite=Strict. State-changing requests also need header X-CSRF-Token (from /auth/me).
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    GuardianId: {name: guardianId, in: path, required: true, schema: {type: string, format: uuid}}
+    Page: {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+    PageSize: {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 25}}
+    IfMatch: {name: If-Match, in: header, required: true, schema: {type: string}, description: Record version for optimistic locking}
+    IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 16, maxLength: 128}}
+    Format: {name: format, in: query, schema: {type: string, enum: [json, xlsx, pdf], default: json}}
+  responses:
+    Problem:
+      description: Error
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    Me:
+      description: Current user
+      content: {application/json: {schema: {$ref: '#/components/schemas/Me'}}}
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code, requestId]
+      properties:
+        type: {type: string, format: uri}
+        title: {type: string}
+        status: {type: integer}
+        code: {type: string, examples: [PAYMENT_DUPLICATE_REFERENCE]}
+        detail: {type: string}
+        requestId: {type: string}
+        errors:
+          type: array
+          items: {type: object, required: [field, code, message], properties: {field: {type: string}, code: {type: string}, message: {type: string}}}
+        meta: {type: object, additionalProperties: true}
+    Pesewas: {type: integer, format: int64, description: Integer amount in pesewas (GH₵1 = 100)}
+    Role: {type: string, enum: [ADMIN, BURSAR, HEADTEACHER, REGISTRAR, TEACHER]}
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties: {username: {type: string, maxLength: 100}, password: {type: string, maxLength: 256}}
+    LoginResponse:
+      type: object
+      properties:
+        mfaRequired: {type: boolean}
+        mfaEnrolmentRequired: {type: boolean, description: ADMIN/BURSAR without MFA must enrol before continuing}
+        mustChangePassword: {type: boolean}
+        user: {$ref: '#/components/schemas/Me'}
+    Me:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        fullName: {type: string}
+        roles: {type: array, items: {$ref: '#/components/schemas/Role'}}
+        permissions: {type: array, items: {type: string}}
+        csrfToken: {type: string}
+        mfaEnabled: {type: boolean}
+    StudentStatus: {type: string, enum: [applicant, active, withdrawn, transferred_out, alumni, deceased]}
+    Gender: {type: string, enum: [male, female]}
+    StudentSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        studentCode: {type: string, pattern: '^[A-Z]{3}-\d{2}-\d{5}-\d$', examples: [KSV-26-00417-7]}
+        fullName: {type: string}
+        preferredName: {type: string}
+        className: {type: string}
+        rollNumber: {type: integer}
+        status: {$ref: '#/components/schemas/StudentStatus'}
+        photoUrl: {type: string}
+        hasMedicalAlert: {type: boolean}
+    Student:
+      allOf:
+        - $ref: '#/components/schemas/StudentSummary'
+        - type: object
+          properties:
+            firstName: {type: string}
+            middleNames: {type: string}
+            lastName: {type: string}
+            dateOfBirth: {type: string, format: date}
+            gender: {$ref: '#/components/schemas/Gender'}
+            nationality: {type: string}
+            homeAddress: {type: string, description: Field-restricted}
+            previousSchool: {type: string}
+            admissionDate: {type: string, format: date}
+            admissionClassId: {type: string, format: uuid}
+            currentEnrolment: {$ref: '#/components/schemas/Enrolment'}
+            birthCertNo: {type: string}
+            religion: {type: string}
+            languages: {type: array, items: {type: string}}
+            balancePesewas: {$ref: '#/components/schemas/Pesewas'}
+            version: {type: integer}
+    AdmitStudentRequest:
+      type: object
+      additionalProperties: false
+      required: [firstName, lastName, dateOfBirth, gender, admissionDate, classId, guardians]
+      properties:
+        firstName: {type: string, maxLength: 80}
+        middleNames: {type: string, maxLength: 120}
+        lastName: {type: string, maxLength: 80}
+        preferredName: {type: string, maxLength: 80}
+        dateOfBirth: {type: string, format: date}
+        gender: {$ref: '#/components/schemas/Gender'}
+        nationality: {type: string, default: Ghanaian}
+        homeAddress: {type: string, maxLength: 300}
+        previousSchool: {type: string, maxLength: 150}
+        admissionDate: {type: string, format: date}
+        classId: {type: string, format: uuid}
+        birthCertNo: {type: string, maxLength: 50}
+        religion: {type: string, maxLength: 50}
+        languages: {type: array, items: {type: string, maxLength: 40}, maxItems: 10}
+        guardians:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              guardianId: {type: string, format: uuid, description: Link an existing guardian (siblings auto-link)}
+              newGuardian: {$ref: '#/components/schemas/GuardianInput'}
+              relationship: {type: string}
+              isPrimary: {type: boolean}
+              isFeePayer: {type: boolean}
+              canPickUp: {type: boolean}
+        medical: {$ref: '#/components/schemas/StudentMedicalInput'}
+        emergencyContacts: {type: array, items: {$ref: '#/components/schemas/EmergencyContactInput'}}
+        confirmNotDuplicate: {type: boolean}
+        duplicateOverrideReason: {type: string, maxLength: 300}
+    StudentMedicalInput:
+      type: object
+      additionalProperties: false
+      properties:
+        bloodGroup: {type: string, enum: [A+, A-, B+, B-, AB+, AB-, O+, O-, unknown]}
+        allergies: {type: string, maxLength: 1000}
+        chronicConditions: {type: string, maxLength: 1000}
+        medicationNotes: {type: string, maxLength: 1000}
+        specialNeeds: {type: string, maxLength: 1000}
+        doctorName: {type: string}
+        clinicName: {type: string}
+        clinicPhone: {type: string}
+        alertSummary: {type: string, maxLength: 200}
+    StudentMedical:
+      allOf: [{$ref: '#/components/schemas/StudentMedicalInput'}, {type: object, properties: {hasAlert: {type: boolean}, updatedAt: {type: string, format: date-time}}}]
+    GuardianInput:
+      type: object
+      additionalProperties: false
+      required: [firstName, lastName, phonePrimary]
+      properties:
+        title: {type: string}
+        firstName: {type: string}
+        lastName: {type: string}
+        phonePrimary: {type: string, description: 'Accepts 024..., stored +233...'}
+        phoneSecondary: {type: string}
+        whatsappNumber: {type: string}
+        email: {type: string, format: email}
+        occupation: {type: string}
+        workplace: {type: string}
+        homeAddress: {type: string}
+        workAddress: {type: string}
+        ghanaCardNumber: {type: string, pattern: '^GHA-\d{9}-\d$', description: Write-only; encrypted}
+    Guardian:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        fullName: {type: string}
+        phonePrimary: {type: string}
+        phoneSecondary: {type: string}
+        whatsappNumber: {type: string}
+        email: {type: string}
+        occupation: {type: string}
+        workplace: {type: string}
+        homeAddress: {type: string}
+        workAddress: {type: string}
+        ghanaCardLast4: {type: string}
+        children: {type: array, items: {$ref: '#/components/schemas/StudentSummary'}}
+        version: {type: integer}
+    EmergencyContactInput:
+      type: object
+      properties:
+        priority: {type: integer, minimum: 1}
+        guardianId: {type: string, format: uuid}
+        name: {type: string}
+        relationship: {type: string}
+        phone: {type: string}
+        notes: {type: string}
+    EmergencyView:
+      type: object
+      properties:
+        student: {$ref: '#/components/schemas/StudentSummary'}
+        bloodGroup: {type: string}
+        alertSummary: {type: string}
+        allergies: {type: string, description: Shown here because it is safety-critical}
+        contacts:
+          type: array
+          items: {type: object, properties: {priority: {type: integer}, name: {type: string}, relationship: {type: string}, phones: {type: array, items: {type: string}}, telLinks: {type: array, items: {type: string}}}}
+        authorisedPickups: {type: array, items: {type: object}}
+        doctor: {type: object, properties: {name: {type: string}, clinic: {type: string}, phone: {type: string}}}
+        recentContactLog: {type: array, items: {type: object}}
+    Enrolment:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        classId: {type: string, format: uuid}
+        className: {type: string}
+        academicYear: {type: string}
+        rollNumber: {type: integer}
+        startDate: {type: string, format: date}
+        endDate: {type: [string, 'null'], format: date}
+        status: {type: string}
+    PromotionRun:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string, enum: [draft, committed, undone]}
+        fromAcademicYearId: {type: string, format: uuid}
+        toAcademicYearId: {type: string, format: uuid}
+        arrearsPolicy: {type: string, enum: [off, warn, block]}
+        undoDeadline: {type: [string, 'null'], format: date-time}
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string, format: uuid}
+              student: {$ref: '#/components/schemas/StudentSummary'}
+              action: {type: string, enum: [promote, repeat, skip, withdraw, transfer_out, graduate]}
+              targetClassId: {type: [string, 'null'], format: uuid}
+              outstandingPesewas: {$ref: '#/components/schemas/Pesewas'}
+              arrearsFlag: {type: boolean}
+              overrideReason: {type: string}
+    PaymentMethod: {type: string, enum: [cash, bank_transfer, cheque, momo_mtn, telecel_cash, at_money]}
+    RecordPaymentRequest:
+      type: object
+      additionalProperties: false
+      required: [studentId, amountPesewas, method, receivedAt]
+      properties:
+        studentId: {type: string, format: uuid}
+        payerGuardianId: {type: string, format: uuid}
+        payerName: {type: string, maxLength: 120}
+        amountPesewas: {type: integer, minimum: 1}
+        method: {$ref: '#/components/schemas/PaymentMethod'}
+        referenceNo: {type: string, maxLength: 64, description: Required for every method except cash}
+        bankName: {type: string}
+        chequeNo: {type: string}
+        receivedAt: {type: string, format: date-time}
+        notes: {type: string, maxLength: 500}
+        allocations:
+          type: array
+          description: Optional explicit allocation; otherwise automatic. Sum may be less than amount (rest = credit).
+          items: {type: object, required: [invoiceLineId, amountPesewas], properties: {invoiceLineId: {type: string, format: uuid}, amountPesewas: {type: integer, minimum: 1}}}
+        confirmDuplicate: {type: boolean}
+        duplicateOverrideReason: {type: string, maxLength: 300}
+    Payment:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        receiptNo: {type: string, examples: [RCP-000413]}
+        studentId: {type: string, format: uuid}
+        amountPesewas: {$ref: '#/components/schemas/Pesewas'}
+        method: {$ref: '#/components/schemas/PaymentMethod'}
+        referenceNo: {type: string}
+        status: {type: string, enum: [confirmed, reversed], description: 'v2 adds pending, failed'}
+        source: {type: string, enum: [manual], description: 'v2 adds gateway'}
+        externalReference: {type: [string, 'null'], description: Reserved for v2 gateway}
+        receivedAt: {type: string, format: date-time}
+        recordedBy: {type: string}
+        allocations: {type: array, items: {type: object, properties: {invoiceLineId: {type: [string, 'null']}, feeItemName: {type: string}, amountPesewas: {$ref: '#/components/schemas/Pesewas'}}}}
+        creditCreatedPesewas: {$ref: '#/components/schemas/Pesewas'}
+        balanceAfterPesewas: {$ref: '#/components/schemas/Pesewas'}
+        reversal: {type: [object, 'null'], properties: {reversedAt: {type: string}, reversedBy: {type: string}, reason: {type: string}, reversalNo: {type: string}}}
+    GenerateInvoicesRequest:
+      type: object
+      additionalProperties: false
+      required: [termId, scope]
+      properties:
+        termId: {type: string, format: uuid}
+        scope: {type: object, properties: {type: {type: string, enum: [student, class, level, school]}, ids: {type: array, items: {type: string, format: uuid}}}}
+        issueDate: {type: string, format: date}
+        dueDate: {type: string, format: date}
+        dryRun: {type: boolean, default: true}
+    Invoice:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        invoiceNo: {type: string}
+        studentId: {type: string, format: uuid}
+        termId: {type: string, format: uuid}
+        status: {type: string, enum: [issued, void]}
+        openingBalancePesewas: {$ref: '#/components/schemas/Pesewas'}
+        totalPesewas: {$ref: '#/components/schemas/Pesewas'}
+        paidPesewas: {$ref: '#/components/schemas/Pesewas'}
+        adjustmentsPesewas: {$ref: '#/components/schemas/Pesewas'}
+        outstandingPesewas: {$ref: '#/components/schemas/Pesewas'}
+        lines: {type: array, items: {type: object, properties: {id: {type: string, format: uuid}, feeItemName: {type: string}, amountPesewas: {$ref: '#/components/schemas/Pesewas'}, paidPesewas: {$ref: '#/components/schemas/Pesewas'}}}}
+    AdjustmentRequest:
+      type: object
+      additionalProperties: false
+      required: [studentId, termId, type, reason]
+      properties:
+        studentId: {type: string, format: uuid}
+        termId: {type: string, format: uuid}
+        type: {type: string, enum: [discount, scholarship, bursary, sibling_discount, waiver, refund, write_off, manual_charge]}
+        feeItemId: {type: string, format: uuid}
+        amountPesewas: {type: integer, minimum: 1}
+        percentBasisPoints: {type: integer, minimum: 1, maximum: 10000, description: Alternative to amount; 2500 = 25%}
+        reason: {type: string, minLength: 5, maxLength: 500}
+    Balance:
+      type: object
+      properties:
+        studentId: {type: string, format: uuid}
+        balancePesewas: {$ref: '#/components/schemas/Pesewas', description: Positive = owes; negative = credit}
+        currentTermOutstandingPesewas: {$ref: '#/components/schemas/Pesewas'}
+        arrearsPesewas: {$ref: '#/components/schemas/Pesewas'}
+        creditPesewas: {$ref: '#/components/schemas/Pesewas'}
+        lastPaymentAt: {type: [string, 'null'], format: date-time}
+    SendMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, channel, audience]
+      properties:
+        kind: {type: string, enum: [fee_reminder, absence_alert, announcement, closure_notice, emergency]}
+        channel: {type: string, enum: [sms, whatsapp]}
+        templateId: {type: string, format: uuid}
+        body: {type: string, maxLength: 640}
+        audience: {type: object, properties: {type: {type: string, enum: [students, guardians, class, level, school, defaulters]}, ids: {type: array, items: {type: string, format: uuid}}, primaryGuardianOnly: {type: boolean, default: true}}}
+        scheduledFor: {type: string, format: date-time}
+    SearchResults:
+      type: object
+      properties:
+        students: {type: array, items: {$ref: '#/components/schemas/StudentSummary'}}
+        guardians: {type: array, items: {type: object, properties: {id: {type: string}, fullName: {type: string}, phone: {type: string}, childrenCount: {type: integer}}}}
+        staff: {type: array, items: {type: object, properties: {id: {type: string}, fullName: {type: string}, jobTitle: {type: string}}}}
+        receipts: {type: array, items: {type: object, properties: {paymentId: {type: string}, receiptNo: {type: string}, studentName: {type: string}, amountPesewas: {$ref: '#/components/schemas/Pesewas'}}}}
