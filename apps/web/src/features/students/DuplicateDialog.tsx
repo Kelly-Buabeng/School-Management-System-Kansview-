@@ -31,7 +31,7 @@ export function DuplicateDialog({
             <Group justify="space-between" wrap="wrap">
               <div>
                 <Text fw={700}>
-                  {c.fullName} <Text span c="dimmed" ff="monospace" size="sm">({c.studentCode})</Text>
+                  {c.fullName} <Text span c="dimmed" size="sm">({c.studentCode})</Text>
                 </Text>
                 <Text size="sm">
                   Born {formatDate(c.dateOfBirth)}
@@ -60,7 +60,7 @@ export function DuplicateDialog({
           <Button variant="default" onClick={onCancel}>
             Go back and check
           </Button>
-          <Button color="orange" disabled={!ok} loading={saving} onClick={() => onConfirm(reason.trim())}>
+          <Button disabled={!ok} loading={saving} onClick={() => onConfirm(reason.trim())}>
             Admit as a different child
           </Button>
         </Group>

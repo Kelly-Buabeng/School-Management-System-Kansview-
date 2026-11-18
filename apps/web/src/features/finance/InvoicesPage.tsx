@@ -110,7 +110,6 @@ export default function InvoicesPage() {
             <Text size="xs" c="dimmed">Showing the first {preview.data.sample.length}. Brought-forward balances are shown on the invoice, not charged again.</Text>
             <Button
               mt="md"
-              color="green"
               disabled={preview.data.studentCount === 0}
               loading={generate.isPending}
               onClick={() =>

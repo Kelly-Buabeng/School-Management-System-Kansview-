@@ -211,7 +211,7 @@ function DeliveryLog({ m, onClose }: { m: MessageSummary; onClose: () => void })
                       <Table.Td>{r.guardianName}</Table.Td>
                       <Table.Td>{displayPhone(r.phone)}</Table.Td>
                       <Table.Td>
-                        <Badge color={r.status === 'delivered' ? 'green' : r.status === 'failed' ? 'red' : 'gray'} variant="light">
+                        <Badge color={r.status === 'delivered' ? 'green' : r.status === 'failed' ? 'red' : 'gray'} variant="default">
                           {r.status}
                         </Badge>
                       </Table.Td>
@@ -223,7 +223,7 @@ function DeliveryLog({ m, onClose }: { m: MessageSummary; onClose: () => void })
             </div>
             {list.some((r) => r.status === 'failed') && (
               <Can perm="messages:send">
-                <Button mt="sm" variant="light" onClick={() => retry.mutate()} loading={retry.isPending}>
+                <Button mt="sm" variant="default" onClick={() => retry.mutate()} loading={retry.isPending}>
                   Retry failed
                 </Button>
               </Can>
@@ -271,7 +271,7 @@ function Log() {
                     </Table.Td>
                     <Table.Td>{m.audienceLabel} ({m.recipientCount})</Table.Td>
                     <Table.Td>
-                      <Badge color={STATUS[m.status]?.color} variant="light">
+                      <Badge color={STATUS[m.status]?.color} variant="default">
                         {STATUS[m.status]?.label ?? m.status}
                       </Badge>
                     </Table.Td>
@@ -281,12 +281,12 @@ function Log() {
                     </Table.Td>
                     <Table.Td>
                       <Group gap={4} wrap="nowrap">
-                        <Button size="compact-xs" variant="light" onClick={() => setOpen(m)}>
+                        <Button size="compact-xs" variant="default" onClick={() => setOpen(m)}>
                           Log
                         </Button>
                         {m.status === 'awaiting_approval' && m.createdBy !== me?.fullName && (
                           <Can perm="messages:bulk_approve">
-                            <Button size="compact-xs" color="green" onClick={() => approve.mutate(m.id)}>
+                            <Button size="compact-xs" onClick={() => approve.mutate(m.id)}>
                               Approve
                             </Button>
                           </Can>

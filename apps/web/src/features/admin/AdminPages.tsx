@@ -61,15 +61,15 @@ export function StaffPage() {
                     <Can perm="staff_sensitive:reveal">
                       <Table.Td>
                         {revealed[s.id] ? (
-                          <Text size="xs" ff="monospace">
+                          <Text size="xs">
                             {revealed[s.id]!.ghanaCardNumber} / {revealed[s.id]!.ssnitNumber}
                           </Text>
                         ) : (
                           <Group gap={4}>
-                            <Text size="xs" ff="monospace">
+                            <Text size="xs">
                               ••••{s.ghanaCardLast4} / ••••{s.ssnitLast4}
                             </Text>
-                            <Button size="compact-xs" variant="light" onClick={() => setReveal(s)}>
+                            <Button size="compact-xs" variant="default" onClick={() => setReveal(s)}>
                               Reveal
                             </Button>
                           </Group>
@@ -458,7 +458,7 @@ export function UsersPage() {
                     <Table.Td>{u.username}</Table.Td>
                     <Table.Td>{u.roles.map((r) => ROLE_LABELS[r]).join(', ')}</Table.Td>
                     <Table.Td>
-                      <Badge color={u.status === 'active' ? 'green' : u.status === 'locked' ? 'red' : 'gray'} variant="light">
+                      <Badge color={u.status === 'active' ? 'green' : u.status === 'locked' ? 'red' : 'gray'} variant="default">
                         {u.status}
                       </Badge>
                       {u.mfaEnabled && <Badge ml={4} variant="outline" size="xs">MFA</Badge>}
@@ -508,7 +508,7 @@ export function UsersPage() {
       </Modal>
       <Modal opened={Boolean(temp)} onClose={() => setTemp(null)} title="Temporary password">
         <Text>Give this to the person privately. They must change it when they first sign in.</Text>
-        <Text ff="monospace" fz="xl" fw={700} my="md">
+        <Text fz="xl" fw={700} my="md">
           {temp}
         </Text>
         <Button onClick={() => setTemp(null)}>I have written it down</Button>
@@ -531,7 +531,7 @@ export function AuditPage() {
         title="Audit log"
         subtitle="Every sensitive view and every change, with who and when. Entries cannot be edited."
         actions={
-          <Button variant="light" onClick={() => verify.mutate()} loading={verify.isPending}>
+          <Button variant="default" onClick={() => verify.mutate()} loading={verify.isPending}>
             Check the log has not been tampered with
           </Button>
         }
@@ -567,7 +567,7 @@ export function AuditPage() {
                         <Table.Td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(e.at)}</Table.Td>
                         <Table.Td>{e.actorName}</Table.Td>
                         <Table.Td>
-                          <Badge variant="light" color={e.action.includes('fail') ? 'red' : e.action === 'reveal_sensitive' || e.action === 'emergency_view' ? 'grape' : 'gray'}>
+                          <Badge variant="default" color={e.action.includes('fail') ? 'red' : e.action === 'reveal_sensitive' || e.action === 'emergency_view' ? 'grape' : 'gray'}>
                             {e.action.replace(/_/g, ' ')}
                           </Badge>
                         </Table.Td>

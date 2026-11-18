@@ -119,7 +119,7 @@ export default function AdjustmentsPage() {
                                   <Text size="xs" c="dimmed">Your request — someone else must approve</Text>
                                 ) : (
                                   <Group gap={4} wrap="nowrap">
-                                    <Button size="compact-sm" color="green" onClick={() => decide.mutate({ id: a.id, action: 'approve' })}>
+                                    <Button size="compact-sm" onClick={() => decide.mutate({ id: a.id, action: 'approve' })}>
                                       Approve
                                     </Button>
                                     <Button size="compact-sm" variant="default" onClick={() => decide.mutate({ id: a.id, action: 'reject' })}>

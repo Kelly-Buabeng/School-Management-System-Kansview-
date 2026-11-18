@@ -48,7 +48,7 @@ function ItemRow({ runId, item, policy, editable, onDirty }: { runId: string; it
       </Table.Td>
       <Table.Td>
         {item.arrearsFlag ? (
-          <Badge color="orange" variant="light">
+          <Badge color="orange" variant="default">
             Owes <Money value={item.outstandingPesewas} />
           </Badge>
         ) : (
@@ -109,7 +109,7 @@ function UndoButton({ run }: { run: PromotionRun }) {
   if (run.status !== 'committed' || !run.undoDeadline || new Date(run.undoDeadline) < new Date()) return null;
   return (
     <Can perm="promotion:undo">
-      <Button color="orange" variant="outline" onClick={() => setOpen(true)}>
+      <Button variant="outline" onClick={() => setOpen(true)}>
         Undo until {formatDateTime(run.undoDeadline)}
       </Button>
       <Modal opened={open} onClose={() => setOpen(false)} title="Undo this promotion?">
@@ -121,7 +121,7 @@ function UndoButton({ run }: { run: PromotionRun }) {
             <Button variant="default" onClick={() => setOpen(false)}>
               Keep promotion
             </Button>
-            <Button color="orange" disabled={reason.trim().length < 5} loading={undo.isPending} onClick={() => undo.mutate()}>
+            <Button disabled={reason.trim().length < 5} loading={undo.isPending} onClick={() => undo.mutate()}>
               Undo promotion
             </Button>
           </Group>
@@ -221,7 +221,7 @@ export default function PromotionWizard() {
                         <StatusBadge status={x.status} />
                       </Table.Td>
                       <Table.Td>
-                        <Button size="compact-xs" variant="light" onClick={() => { setRunId(x.id); setStep(x.status === 'draft' ? 1 : 4); }}>
+                        <Button size="compact-xs" variant="default" onClick={() => { setRunId(x.id); setStep(x.status === 'draft' ? 1 : 4); }}>
                           Open
                         </Button>
                       </Table.Td>
@@ -347,7 +347,6 @@ export default function PromotionWizard() {
             </Button>
             <Can perm="promotion:commit">
               <Button
-                color="green"
                 disabled={blocked.length > 0 || missingReasons.length > 0}
                 loading={commit.isPending}
                 onClick={() =>

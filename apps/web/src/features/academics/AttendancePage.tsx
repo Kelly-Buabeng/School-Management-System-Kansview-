@@ -67,17 +67,17 @@ export default function AttendancePage() {
               <Text size="sm">
                 {entries.length} children · <b>{absent} absent</b>
               </Text>
-              <Button variant="light" size="xs" onClick={() => setEntries((es) => es.map((e) => ({ ...e, status: 'present', reason: undefined })))}>
+              <Button variant="default" size="xs" onClick={() => setEntries((es) => es.map((e) => ({ ...e, status: 'present', reason: undefined })))}>
                 Mark all present
               </Button>
             </Group>
             {entries.map((e) => (
-              <Card key={e.studentId} withBorder p="xs" bg={e.status === 'absent' ? 'red.0' : e.status === 'present' ? undefined : 'yellow.0'}>
+              <Card key={e.studentId} withBorder p="xs" bg={e.status === 'present' ? undefined : 'var(--k-warning)'}>
                 <Group justify="space-between" wrap="wrap" gap="xs">
                   <Text fw={600} size="sm" style={{ minWidth: 160 }}>
                     {e.rollNumber}. {e.fullName}
                   </Text>
-                  <SegmentedControl size="sm" value={e.status} onChange={(v) => update(e.studentId, { status: v as AttendanceMark })} data={MARKS} aria-label={`Attendance for ${e.fullName}`} />
+                  <SegmentedControl size="md" styles={{ label: { minHeight: 40, display: "flex", alignItems: "center" } }} value={e.status} onChange={(v) => update(e.studentId, { status: v as AttendanceMark })} data={MARKS} aria-label={`Attendance for ${e.fullName}`} />
                 </Group>
                 {e.status !== 'present' && <TextInput mt={6} size="xs" placeholder="Reason (optional), e.g. sick, travelled" aria-label={`Reason for ${e.fullName}`} value={e.reason ?? ''} onChange={(ev) => update(e.studentId, { reason: ev.currentTarget.value })} />}
               </Card>

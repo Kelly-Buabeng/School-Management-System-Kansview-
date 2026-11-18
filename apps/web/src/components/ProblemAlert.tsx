@@ -23,7 +23,7 @@ export function ProblemAlert({ error, onRetry, title }: { error: unknown; onRetr
       <Alert color="orange" title={title ?? 'No connection to the school server'} role="alert">
         <Text size="sm">{error.message}</Text>
         {onRetry && (
-          <Button mt="xs" size="xs" variant="white" color="orange" onClick={onRetry}>
+          <Button mt="xs" size="xs" variant="white" onClick={onRetry}>
             Try again
           </Button>
         )}
@@ -52,7 +52,7 @@ export function ProblemAlert({ error, onRetry, title }: { error: unknown; onRetr
           <span />
         )}
         {onRetry && (
-          <Button size="xs" variant="light" color={color} onClick={onRetry}>
+          <Button size="xs" variant="default" color={color} onClick={onRetry}>
             Try again
           </Button>
         )}

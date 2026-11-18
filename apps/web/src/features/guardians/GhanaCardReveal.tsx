@@ -23,7 +23,7 @@ export function GhanaCardReveal({ guardianId, last4 }: { guardianId: string; las
   if (!last4 && !full) return <Text span>Not recorded</Text>;
   return (
     <Group gap="xs" wrap="wrap">
-      <Text span ff="monospace">
+      <Text span>
         {full ?? `GHA-•••••${last4}-•`}
       </Text>
       {full ? (
@@ -32,7 +32,7 @@ export function GhanaCardReveal({ guardianId, last4 }: { guardianId: string; las
         </Button>
       ) : (
         <Can perm="ghana_card:reveal">
-          <Button size="compact-xs" variant="light" onClick={() => setOpen(true)}>
+          <Button size="compact-xs" variant="default" onClick={() => setOpen(true)}>
             Reveal
           </Button>
         </Can>

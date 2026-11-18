@@ -83,7 +83,7 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
           </Can>
         )}
         <Can perm="withdrawals:export">
-          <Button variant="light" onClick={() => void downloadFile('/withdrawals/{id}/transfer-letter.pdf', { id: w.id }).catch((e) => notifications.show(notifyError(e)))}>
+          <Button variant="default" onClick={() => void downloadFile('/withdrawals/{id}/transfer-letter.pdf', { id: w.id }).catch((e) => notifications.show(notifyError(e)))}>
             Transfer letter (PDF)
           </Button>
         </Can>

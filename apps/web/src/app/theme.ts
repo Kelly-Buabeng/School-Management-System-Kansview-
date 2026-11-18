@@ -2,7 +2,7 @@
  * Kansview design tokens (docs/design/README.md, approved 2026-11-18) mapped onto a Mantine theme.
  * Navy is the primary colour; red is reserved for emergency actions/views and arrears.
  */
-import { createTheme, type MantineColorsTuple } from '@mantine/core';
+import { createTheme, defaultVariantColorsResolver, type MantineColorsTuple } from '@mantine/core';
 
 export const tokens = {
   navy: '#1f3a6e',
@@ -20,7 +20,25 @@ const navy: MantineColorsTuple = ['#eef2f9', '#dbe3f1', '#b4c3e0', '#8aa1cd', '#
 const emergency: MantineColorsTuple = ['#fbeceb', '#f6d6d4', '#ecaaa6', '#e17d77', '#d65750', '#cb3e36', '#c0302a', '#b3261e', '#931f18', '#721812'];
 const sand: MantineColorsTuple = ['#fbfaf7', '#f6f3ee', '#ede8df', '#e3ddd2', '#d8d2c7', '#bdb5a6', '#9e9584', '#7d7564', '#5f584a', '#423d33'];
 
+/** Light variants (alerts, badges) use the design's message tones instead of Mantine's tinted defaults. */
+const LIGHT_TONES: Record<string, { background: string; color: string }> = {
+  green: { background: tokens.success, color: '#1e6b34' },
+  teal: { background: tokens.success, color: '#1e6b34' },
+  yellow: { background: tokens.warning, color: '#7a5600' },
+  orange: { background: tokens.warning, color: '#7a5600' },
+  red: { background: '#f9e3e1', color: tokens.red },
+  blue: { background: '#e3e9f4', color: tokens.navy },
+  navy: { background: '#e3e9f4', color: tokens.navy },
+  grape: { background: '#ece8e1', color: tokens.ink },
+  gray: { background: '#ece8e1', color: tokens.ink },
+};
+
 export const theme = createTheme({
+  variantColorResolver: (input) => {
+    const base = defaultVariantColorsResolver(input);
+    const tone = input.variant === 'light' ? LIGHT_TONES[(input.color ?? 'navy').split('.')[0]!] : undefined;
+    return tone ? { ...base, background: tone.background, hover: tone.background, color: tone.color, border: 'transparent' } : base;
+  },
   colors: { navy, red: emergency, sand },
   primaryColor: 'navy',
   primaryShade: 7,

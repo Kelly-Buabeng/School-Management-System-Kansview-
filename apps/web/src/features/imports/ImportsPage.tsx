@@ -59,7 +59,7 @@ function Rows({ job }: { job: ImportJob }) {
                       <Table.Td>{r.rowNumber}</Table.Td>
                       <Table.Td>{Object.values(r.data).filter(Boolean).join(' · ')}</Table.Td>
                       <Table.Td>
-                        <Badge color={ROW_COLOURS[r.status]} variant="light">
+                        <Badge color={ROW_COLOURS[r.status]} variant="default">
                           {r.status}
                         </Badge>
                       </Table.Td>
@@ -160,7 +160,7 @@ export default function ImportsPage() {
                 {j.fileName} — {TYPES[j.type]}
               </Text>
               <Group>
-                <Button variant="light" size="xs" onClick={() => void downloadFile('/imports/{id}/error-report.xlsx', { id: j.id }, {}, `${j.fileName}-errors.xlsx`).catch((e) => notifications.show(notifyError(e)))}>
+                <Button variant="default" size="xs" onClick={() => void downloadFile('/imports/{id}/error-report.xlsx', { id: j.id }, {}, `${j.fileName}-errors.xlsx`).catch((e) => notifications.show(notifyError(e)))}>
                   Download error report
                 </Button>
                 <Button variant="default" size="xs" onClick={() => setJobId(null)}>

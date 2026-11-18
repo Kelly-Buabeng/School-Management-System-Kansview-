@@ -119,7 +119,7 @@ function GuardianSearch({ onPick }: { onPick: (g: Guardian) => void }) {
                 Children: {g.children?.map((c) => `${c.fullName} (${c.className ?? '—'})`).join(', ') || 'none'}
               </Text>
             </div>
-            <Button size="xs" variant="light" onClick={() => onPick(g)}>
+            <Button size="xs" variant="default" onClick={() => onPick(g)}>
               Link this parent
             </Button>
           </Group>
@@ -300,7 +300,7 @@ export default function AdmissionWizard() {
                 {errors.guardians?.message ?? errors.guardians?.root?.message}
               </Alert>
             )}
-            <Button variant="light" onClick={addNew} w="fit-content">
+            <Button variant="default" onClick={addNew} w="fit-content">
               + Add a new parent or guardian
             </Button>
           </Stack>
@@ -357,7 +357,7 @@ export default function AdmissionWizard() {
                 </Group>
               </Card>
             ))}
-            <Button variant="light" w="fit-content" onClick={() => contacts.append({ name: '', relationship: '', phone: '' })}>
+            <Button variant="default" w="fit-content" onClick={() => contacts.append({ name: '', relationship: '', phone: '' })}>
               + Add another contact
             </Button>
           </Stack>

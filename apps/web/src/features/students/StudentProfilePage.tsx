@@ -42,7 +42,7 @@ export default function StudentProfilePage() {
                 <Avatar src={s.photoUrl} size="lg" alt={`Photo of ${s.fullName}`} />
                 <div>
                   <span>{s.fullName}</span>
-                  <Text size="sm" c="dimmed" ff="monospace">
+                  <Text size="sm" c="dimmed">
                     {s.studentCode} · {s.className ?? 'No class'}
                   </Text>
                 </div>
@@ -56,7 +56,7 @@ export default function StudentProfilePage() {
                   </Button>
                 </Can>
                 <Can perm="payments:create">
-                  <Button component={Link} to={`/finance/payments/new?studentId=${id}`} variant="light">
+                  <Button component={Link} to={`/finance/payments/new?studentId=${id}`} variant="default">
                     Record payment
                   </Button>
                 </Can>
@@ -184,7 +184,7 @@ function Family({ id }: { id: string }) {
           ) : (
             <Group>
               {list.map((s) => (
-                <Button key={s.id} component={Link} to={`/students/${s.id}`} variant="light">
+                <Button key={s.id} component={Link} to={`/students/${s.id}`} variant="default">
                   {s.fullName} · {s.className}
                 </Button>
               ))}

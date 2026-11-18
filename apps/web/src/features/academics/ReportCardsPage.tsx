@@ -127,7 +127,7 @@ export default function ReportCardsPage() {
                       </Table.Td>
                       <Table.Td>
                         <Can perm="academics:export">
-                          <Button size="compact-xs" variant="light" onClick={() => void downloadFile('/report-cards/{id}/pdf', { id: rc.id }).catch((e) => notifications.show(notifyError(e)))}>
+                          <Button size="compact-xs" variant="default" onClick={() => void downloadFile('/report-cards/{id}/pdf', { id: rc.id }).catch((e) => notifications.show(notifyError(e)))}>
                             PDF
                           </Button>
                         </Can>

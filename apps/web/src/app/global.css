@@ -117,6 +117,23 @@ a {
   white-space: nowrap;
 }
 
+/* Tables sit in white cards (design); no double border when already inside a Card. */
+.table-scroll {
+  background: #fff;
+  border: 1px solid var(--k-line);
+  border-radius: 8px;
+}
+.mantine-Card-root .table-scroll {
+  border: 0;
+  border-radius: 0;
+}
+.mantine-Alert-root {
+  border-radius: 8px;
+}
+.mantine-Alert-title {
+  font-weight: 600;
+}
+
 @media print {
   .no-print,
   .k-sidebar,

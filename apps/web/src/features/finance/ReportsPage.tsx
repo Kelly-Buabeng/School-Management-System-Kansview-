@@ -43,10 +43,10 @@ export default function ReportsPage() {
         title="Finance reports"
         actions={
           <>
-            <Button variant="light" onClick={() => exp.mutate('xlsx')} loading={exp.isPending && exp.variables === 'xlsx'}>
+            <Button variant="default" onClick={() => exp.mutate('xlsx')} loading={exp.isPending && exp.variables === 'xlsx'}>
               Export Excel
             </Button>
-            <Button variant="light" onClick={() => exp.mutate('pdf')} loading={exp.isPending && exp.variables === 'pdf'}>
+            <Button variant="default" onClick={() => exp.mutate('pdf')} loading={exp.isPending && exp.variables === 'pdf'}>
               Export PDF
             </Button>
           </>
