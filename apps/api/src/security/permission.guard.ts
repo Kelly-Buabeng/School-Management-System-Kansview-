@@ -9,6 +9,7 @@ import { LOGIN_PHASE_KEY } from './login-phase.decorator';
 import { sessionStateOf } from './session-resolver.impl';
 import { SessionService, type SessionPhase } from './session.service';
 import { currentRequestContext } from './request-context';
+import { RATE_LIMITS, RateLimiter } from './rate-limiter';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -19,7 +20,9 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * 3. CSRF synchroniser token (X-CSRF-Token) on every non-GET request of a real session.
  * 4. Part-way sessions (MFA pending, MFA enrolment required, temporary password) only reach routes marked
  *    @AllowDuringLogin(...) (or 'mfa-pending-session' for the MFA code step).
- * 5. RBAC permission check. Object-level scope is applied by repositories via ScopeService (404 when out of scope).
+ * 5. RBAC permission check.
+ * 6. Rate limits on search and exports (per user).
+ *    Object-level scope is applied by repositories via ScopeService (404 when out of scope).
  */
 @Injectable()
 export class PermissionGuard implements CanActivate {
@@ -27,6 +30,7 @@ export class PermissionGuard implements CanActivate {
     private readonly reflector: Reflector,
     @Inject(SESSION_RESOLVER) private readonly sessions: SessionResolver,
     @Optional() private readonly sessionService?: SessionService,
+    @Optional() private readonly limiter?: RateLimiter,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -61,6 +65,12 @@ export class PermissionGuard implements CanActivate {
     if (required === 'self' || required === 'owner-of-export' || required === 'inherits-from-owning-record' || required === 'mfa-pending-session') return true;
     if (!user.permissions.has(required as Permission)) {
       throw new AppError(403, ErrorCodes.FORBIDDEN, 'You do not have permission to do this');
+    }
+    // 6. Per-user rate limits for expensive reads (real sessions only).
+    if (state && this.limiter) {
+      const res = ctx.switchToHttp().getResponse<{ setHeader(n: string, v: string): unknown }>();
+      if (required === 'search:read') this.limiter.enforce(`search:${user.id}`, RATE_LIMITS.searchPerUser, res);
+      else if (required.endsWith(':export')) this.limiter.enforce(`export:${user.id}`, RATE_LIMITS.exportPerUser, res);
     }
     return true;
   }

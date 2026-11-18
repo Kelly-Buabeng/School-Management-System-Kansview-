@@ -70,7 +70,7 @@ Legend: **S** spoofing, **T** tampering, **R** repudiation, **I** information di
 | S | Session cookie stolen by XSS and replayed | Cookie `__Host-sms_session`, `HttpOnly; Secure; SameSite=Strict; Path=/`. Strict CSP (no inline script, `default-src 'self'`). React escapes output. Session bound to server-side row that can be revoked. |
 | S | Password guessed or reused from another breach | Min 12 characters, offline check against bundled common/breached password list, Argon2id, lockout after 5 failures (15 min, progressive), MFA (mandatory for ADMIN and BURSAR). `apps/api/src/security/password-policy.ts`, `auth.service.ts`. |
 | S | Shared staff laptop left signed in | Idle timeout 30 min, absolute 12 h, logout button revokes the server session. Admin can force logout. |
-| T | CSRF: another site makes the browser post a payment | SameSite=Strict cookie **and** synchroniser token in `X-CSRF-Token` checked on every non-GET route (`security/csrf.ts`). CORS not enabled (same origin only). |
+| T | CSRF: another site makes the browser post a payment | SameSite=Strict cookie **and** synchroniser token in `X-CSRF-Token` checked on every non-GET route (`security/permission.guard.ts`). CORS not enabled (same origin only). |
 | T | Student edits page HTML to submit hidden fields (mass assignment) | Strict Zod request schemas (`z.strictObject`) reject unknown fields. Server decides permissions, never the UI. |
 | I | Data left in browser storage on a shared laptop | No personal data in `localStorage`; API responses `Cache-Control: no-store`. Downloads via `Content-Disposition: attachment`. |
 | I | Shoulder surfing, phone left unlocked during Emergency View | Ghana Card masked by default; medical detail behind a separate permission; Emergency View shows alert summary only. Staff confidentiality guidance (`data-protection/staff-confidentiality.md`). |
@@ -214,14 +214,17 @@ Scenario: someone carries away the mini server (or its disk) at night.
 
 | Control | Location |
 |---|---|
-| Permission guard, CSRF, MFA-pending handling | `apps/api/src/security/permission.guard.ts`, `csrf.ts` |
-| Sessions | `apps/api/src/security/session.service.ts` |
+| Permission guard, CSRF, MFA-pending handling | `apps/api/src/security/permission.guard.ts`, `login-phase.decorator.ts`, CSRF in `session.service.ts` |
+| Sessions | `apps/api/src/security/session.service.ts`, `session-resolver.impl.ts` |
 | Password policy and hashing | `apps/api/src/security/password-policy.ts`, `password-hasher.ts` |
 | TOTP and recovery codes | `apps/api/src/security/totp.ts` |
 | Field encryption, blind index, key rotation | `apps/api/src/security/field-crypto.service.ts`, `apps/api/src/security/cli/rotate-keys.ts` |
 | Upload pipeline and ClamAV | `apps/api/src/security/upload-pipeline.service.ts`, `clamav.ts`, `file-sniffer.ts` |
 | Audit writer, masking, chain verification | `apps/api/src/security/audit.service.impl.ts`, `masking.ts`, `apps/api/src/modules/audit/` |
-| Rate limiting | `apps/api/src/security/rate-limiter.ts` |
+| Rate limiting | `apps/api/src/security/rate-limiter.ts` (login, MFA, password reset; search/export limits are defined in `RATE_LIMITS` for modules to call) |
 | Scope and field policy | `apps/api/src/security/scope.service.impl.ts`, `field-policy.impl.ts` |
 | Security test plan | `docs/security/security-test-plan.md` |
 | Data protection (Act 843) | `docs/security/data-protection/` |
+| Idempotency | `apps/api/src/security/idempotency.impl.ts` |
+| Security headers | `apps/api/src/security/security-headers.ts` |
+| Key management | `docs/security/key-management.md` |

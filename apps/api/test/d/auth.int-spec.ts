@@ -316,6 +316,19 @@ describe('passwords', () => {
   });
 });
 
+describe('rate limits on expensive reads', () => {
+  it('search is limited per user (429 after the limit)', async () => {
+    await createUser(ctx.db, { username: 'reg.search', roles: ['REGISTRAR'] });
+    const s = await login(ctx.app, 'reg.search');
+    const limiter = ctx.app.get(RateLimiter);
+    const user = await ctx.db.selectFrom('users').select('id').where('username', '=', 'reg.search').executeTakeFirstOrThrow();
+    for (let i = 0; i < 120; i++) limiter.consume(`search:${user.id}`, { limit: 120, windowMs: 60_000 });
+    const r = await authed(ctx.app, s).get('/api/v1/search?q=ama');
+    expect(r.status).toBe(429);
+    expect(r.headers['retry-after']).toBeDefined();
+  });
+});
+
 describe('security headers', () => {
   it('sets strict headers on API responses', async () => {
     const r = await http().get('/api/v1/health/live');
