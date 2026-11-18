@@ -1,0 +1,198 @@
+/* App shell: desktop 232 px navy sidebar + top bar; phone navy header + bottom tabs + floating Emergency button. */
+.k-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 232px;
+  background: var(--k-navy);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 12px 16px;
+  z-index: 200;
+}
+.k-wordmark {
+  font-family: var(--k-serif);
+  font-weight: 600;
+  font-size: 20px;
+  color: #fff;
+  text-decoration: none;
+  padding: 0 10px 20px;
+  display: block;
+}
+.k-nav {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.k-nav a {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.k-nav a:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.k-nav a[aria-current='page'] {
+  background: var(--k-navy-pill);
+}
+.k-nav-group {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b7c3dc;
+  padding: 16px 12px 6px;
+}
+.k-user {
+  font-size: 12px;
+  color: #d5ddee;
+  padding: 12px 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.k-user button {
+  background: none;
+  border: 0;
+  color: #fff;
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  margin-right: 12px;
+  min-height: 32px;
+}
+
+.k-body {
+  margin-left: 232px;
+  min-height: 100vh;
+}
+.k-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 150;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 20px;
+  background: #fbfaf7;
+  border-bottom: 1px solid var(--k-line);
+}
+.k-main {
+  padding: 24px 20px 40px;
+  max-width: 1200px;
+}
+
+.k-phonebar,
+.k-tabbar,
+.k-fab {
+  display: none;
+}
+
+@media (max-width: 61.99em) {
+  .k-sidebar,
+  .k-topbar {
+    display: none;
+  }
+  .k-body {
+    margin-left: 0;
+    padding-bottom: 72px;
+  }
+  .k-main {
+    padding: 16px 16px 96px;
+  }
+  .k-phonebar {
+    position: sticky;
+    top: 0;
+    z-index: 150;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 60px;
+    padding: 8px 12px;
+    background: var(--k-navy);
+    color: #fff;
+  }
+  .k-phonebar h1 {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-family: var(--k-serif);
+    font-size: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .k-round {
+    min-width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    border: 0;
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    font: inherit;
+    font-size: 14px;
+    padding: 0 10px;
+    cursor: pointer;
+  }
+  .k-tabbar {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 160;
+    display: flex;
+    background: #fbfaf7;
+    border-top: 1px solid var(--k-line);
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+  }
+  .k-tabbar a,
+  .k-tabbar button {
+    flex: 1;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--k-ink);
+    text-decoration: none;
+    font: inherit;
+    font-size: 13px;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .k-tabbar [aria-current='page'] {
+    background: #e3e9f4;
+    color: var(--k-navy);
+    font-weight: 600;
+  }
+  .k-fab {
+    position: fixed;
+    right: 16px;
+    bottom: 80px;
+    z-index: 170;
+    display: inline-flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 0 20px;
+    border-radius: 24px;
+    background: var(--k-red);
+    color: #fff;
+    font-weight: 600;
+    text-decoration: none;
+    box-shadow: 0 4px 14px rgba(179, 38, 30, 0.35);
+  }
+}
+
+.k-more a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 8px;
+  color: var(--k-ink);
+  text-decoration: none;
+  border-bottom: 1px solid #eee9e1;
+}

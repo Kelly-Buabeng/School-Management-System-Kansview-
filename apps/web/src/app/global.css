@@ -1,0 +1,152 @@
+/* Kansview design tokens (see docs/design/README.md). Fonts are self-hosted (the school LAN is often offline). */
+:root {
+  --k-navy: #1f3a6e;
+  --k-navy-pill: #3a5285;
+  --k-ink: #1d2433;
+  --k-muted: #5b6272;
+  --k-paper: #f6f3ee;
+  --k-line: #d8d2c7;
+  --k-red: #b3261e;
+  --k-red-tint: #f9e3e1;
+  --k-success: #dff0e3;
+  --k-success-ink: #1e6b34;
+  --k-warning: #fbf0d4;
+  --k-warning-ink: #7a5600;
+  --k-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+
+  /* Mantine overrides so every component uses the tokens. */
+  --mantine-color-body: var(--k-paper);
+  --mantine-color-text: var(--k-ink);
+  --mantine-color-default-border: var(--k-line);
+  --mantine-color-dimmed: var(--k-muted);
+}
+
+html,
+body {
+  margin: 0;
+  overflow-x: hidden;
+  background: var(--k-paper);
+  color: var(--k-ink);
+}
+
+/* Inputs: white with a line border, label above. */
+.mantine-Input-input,
+.mantine-InputWrapper-root input,
+.mantine-Textarea-input {
+  border-color: var(--k-line);
+  background: #fff;
+}
+.mantine-InputWrapper-label {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.mantine-Card-root,
+.mantine-Paper-root[data-with-border] {
+  border-color: var(--k-line);
+}
+.mantine-Table-th {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--k-muted);
+}
+
+/* Secondary button: white, line border, ink text. */
+.k-btn-secondary,
+.mantine-Button-root[data-variant='default'] {
+  background: #fff;
+  border-color: var(--k-line);
+  color: var(--k-ink);
+}
+
+a {
+  color: var(--k-navy);
+}
+
+.k-serif {
+  font-family: var(--k-serif);
+}
+.k-num {
+  font-family: var(--k-serif);
+  font-weight: 600;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* Inline messages. */
+.k-msg {
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+}
+.k-msg-success {
+  background: var(--k-success);
+}
+.k-msg-warning {
+  background: var(--k-warning);
+}
+.k-msg-danger {
+  background: var(--k-red-tint);
+}
+
+/* Visible keyboard focus everywhere (WCAG 2.4.7). */
+:focus-visible {
+  outline: 3px solid #c98a00;
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  background: #fff;
+  color: var(--k-navy);
+  padding: 8px 12px;
+}
+.skip-link:focus {
+  left: 8px;
+  top: 8px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Tables sit in white cards (design); no double border when already inside a Card. */
+.table-scroll {
+  background: #fff;
+  border: 1px solid var(--k-line);
+  border-radius: 8px;
+}
+.mantine-Card-root .table-scroll {
+  border: 0;
+  border-radius: 0;
+}
+.mantine-Alert-root {
+  border-radius: 8px;
+}
+.mantine-Alert-title {
+  font-weight: 600;
+}
+
+@media print {
+  .no-print,
+  .k-sidebar,
+  .k-topbar,
+  .k-tabbar,
+  .k-fab {
+    display: none !important;
+  }
+  .k-main {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body {
+    background: #fff;
+  }
+}
