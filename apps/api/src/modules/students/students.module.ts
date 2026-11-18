@@ -1,23 +1,26 @@
 // Owner: Agent B. See docs/plan/phase1-agent-tasks.md. Do not edit from another agent; raise a change request.
-import { Global, Injectable, Module } from '@nestjs/common';
-import { STUDENT_LOOKUP, IMPORT_TARGET, type StudentLookup, type StudentBillingInfo, type ImportTarget } from '../../common/contracts';
-import { AppError } from '../../common/app-error';
+import { Global, Module } from '@nestjs/common';
+import { IMPORT_TARGET, STUDENT_LOOKUP } from '../../common/contracts';
+import { GuardianWriter } from '../guardians/guardian-writer';
+import { AdmissionService } from './admission.service';
+import { SafetyWriter } from './safety-writer';
+import { StudentReader } from './student-reader';
+import { StudentImportTarget, StudentLookupService } from './student-lookup.service';
+import { StudentsController } from './students.controller';
+import { StudentsService } from './students.service';
 
-// SCAFFOLD STUB(S): replace with the real implementation and update the binding below.
-@Injectable()
-export class StubStudentLookup implements StudentLookup {
-  async getBillingInfo(): Promise<StudentBillingInfo | null> { return null; }
-  async listActiveStudentIds(): Promise<string[]> { return []; }
-  async smsRecipients(): Promise<Array<{ guardianId: string; phone: string }>> { return []; }
-}
-@Injectable()
-export class StubImportTarget implements ImportTarget {
-  async upsertStudentWithGuardians(): Promise<never> { throw new AppError(501, 'NOT_IMPLEMENTED', 'Student import target not implemented yet'); }
-}
-
+/**
+ * Global: exports the StudentLookup / ImportTarget contracts (tokens) for other agents,
+ * and the shared student read/write services for Agent B's other modules.
+ */
 @Global()
 @Module({
-  providers: [{ provide: STUDENT_LOOKUP, useClass: StubStudentLookup }, { provide: IMPORT_TARGET, useClass: StubImportTarget }],
-  exports: [STUDENT_LOOKUP, IMPORT_TARGET],
+  controllers: [StudentsController],
+  providers: [
+    StudentsService, StudentReader, AdmissionService, SafetyWriter, GuardianWriter,
+    { provide: STUDENT_LOOKUP, useClass: StudentLookupService },
+    { provide: IMPORT_TARGET, useClass: StudentImportTarget },
+  ],
+  exports: [STUDENT_LOOKUP, IMPORT_TARGET, StudentReader, AdmissionService, SafetyWriter, GuardianWriter, StudentsService],
 })
 export class StudentsModule {}

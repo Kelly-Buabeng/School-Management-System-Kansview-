@@ -160,6 +160,26 @@ describe('students', () => {
   });
 });
 
+describe('payment reversals (CR-0003)', () => {
+  it('enforces maker-checker, one active reversal per payment, and sms_app column grants', async () => {
+    await expect(attempt(() => c.query(
+      `INSERT INTO app.payment_reversals (payment_id, reason, requested_by, approved_by, status) VALUES ($1, 'Wrong student', $2, $2, 'approved')`,
+      [f.paymentId, f.userId]))).rejects.toThrow(/payment_reversals_maker_checker/);
+    await attempt(async () => {
+      await c.query(`INSERT INTO app.payment_reversals (payment_id, reason, requested_by) VALUES ($1, 'Wrong student', $2)`, [f.paymentId, f.userId]);
+      await expect(c.query(`INSERT INTO app.payment_reversals (payment_id, reason, requested_by) VALUES ($1, 'Again please', $2)`, [f.paymentId, f.userId]))
+        .rejects.toThrow(/payment_reversals_one_active/);
+    }, 'sms_app');
+    await attempt(async () => {
+      const { id } = await one<{ id: string }>(c, `INSERT INTO app.payment_reversals (payment_id, reason, requested_by) VALUES ($1, 'Wrong student', $2) RETURNING id`, [f.paymentId, f.userId]);
+      await c.query(`UPDATE app.payment_reversals SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1`, [id, f.approverId]);
+      await expect(c.query(`UPDATE app.payment_reversals SET reason = 'changed reason' WHERE id = $1`, [id])).rejects.toThrow(/permission denied/);
+    }, 'sms_app');
+    await expect(attempt(() => c.query(`INSERT INTO app.payment_reversals (payment_id, reason, requested_by) VALUES ($1, 'no', $2)`, [f.paymentId, f.userId])))
+      .rejects.toThrow(/check/);
+  });
+});
+
 describe('views', () => {
   it('v_sibling_links derives siblings from shared guardians', async () => {
     const b = await insertStudent(c, f.classId, 'Esi', 'Mensah');

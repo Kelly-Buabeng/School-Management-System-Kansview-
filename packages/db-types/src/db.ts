@@ -71,6 +71,8 @@ export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type PaymentMethod = "at_money" | "bank_transfer" | "cash" | "cheque" | "momo_mtn" | "telecel_cash";
 
+export type PaymentReversalStatus = "approved" | "pending" | "rejected";
+
 export type PaymentSource = "manual";
 
 export type PaymentStatus = "confirmed" | "reversed";
@@ -128,6 +130,7 @@ export interface Adjustments {
   approved_by: string | null;
   created_at: Generated<Timestamp>;
   created_by: string | null;
+  decision_reason: string | null;
   fee_item_id: string | null;
   id: Generated<string>;
   percent_bp: number | null;
@@ -135,6 +138,9 @@ export interface Adjustments {
   rejected_reason: string | null;
   requested_at: Generated<Timestamp>;
   requested_by: string;
+  reversal_reason: string | null;
+  reversed_at: Timestamp | null;
+  reversed_by: string | null;
   status: Generated<AdjustmentStatus>;
   student_id: string;
   term_id: string | null;
@@ -712,6 +718,23 @@ export interface PaymentAllocations {
   payment_id: string;
 }
 
+export interface PaymentReversals {
+  approved_at: Timestamp | null;
+  approved_by: string | null;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  id: Generated<string>;
+  ledger_entry_id: string | null;
+  payment_id: string;
+  reason: string;
+  requested_at: Generated<Timestamp>;
+  requested_by: string;
+  reversal_no: string | null;
+  status: Generated<PaymentReversalStatus>;
+  updated_at: Timestamp | null;
+  updated_by: string | null;
+}
+
 export interface Payments {
   amount_pesewas: Int8;
   attachment_file_id: string | null;
@@ -1177,6 +1200,7 @@ export interface DB {
   mv_student_balances: MvStudentBalances;
   password_reset_tokens: PasswordResetTokens;
   payment_allocations: PaymentAllocations;
+  payment_reversals: PaymentReversals;
   payments: Payments;
   promotion_run_items: PromotionRunItems;
   promotion_runs: PromotionRuns;
