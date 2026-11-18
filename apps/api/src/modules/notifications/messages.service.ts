@@ -58,7 +58,7 @@ export class MessagesService {
     validateTemplate(body.code, body.body);
     return this.db.transaction().execute(async (tx) => {
       const exists = await tx.selectFrom('message_templates').select('id').where('code', '=', body.code).where('channel', '=', body.channel).executeTakeFirst();
-      if (exists) throw new AppError(409, 'VALIDATION_FAILED', 'A template for this message type already exists', 'Edit the existing template instead.');
+      if (exists) throw new AppError(409, 'RECORD_ALREADY_EXISTS', 'A template for this message type already exists', 'Edit the existing template instead.');
       const row = await tx.insertInto('message_templates').values({
         code: body.code, channel: body.channel, name: body.name, body: body.body, is_active: body.isActive, created_by: user.id, updated_by: user.id,
       }).returningAll().executeTakeFirstOrThrow();
