@@ -22,7 +22,7 @@ export const pages = {
   studentProfile: page(() => import('@/features/students/StudentProfilePage')),
   admission: page(() => import('@/features/students/AdmissionWizard')),
   guardian: page(() => import('@/features/guardians/GuardianPage')),
-  emergency: ComingSoon,
+  emergency: page(() => import('@/features/emergency/EmergencyViewPage')),
   recordPayment: ComingSoon,
   payments: ComingSoon,
   receipt: ComingSoon,
