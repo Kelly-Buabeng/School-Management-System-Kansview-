@@ -13,7 +13,9 @@ describe('promotion wizard', () => {
     await user.click(await screen.findByRole('textbox', { name: 'Into year' }));
     await user.click(await screen.findByRole('option', { name: '2027/2028', hidden: true }));
     await user.click(await screen.findByLabelText(/^Basic 2 \(/));
-    await user.click(screen.getByRole('button', { name: /Build preview/ }));
+    await user.click(screen.getByRole('button', { name: 'Preview promotion' }));
+    expect(await screen.findByText(/10 students: 10 move up/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next: exceptions' }));
 
     const kwameRow = (await screen.findByText('Kwame Agyei Mensah')).closest('tr')!;
     const actionInput = within(kwameRow).getByRole('textbox', { name: /What happens to Kwame/ });

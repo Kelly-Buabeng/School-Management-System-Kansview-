@@ -1,12 +1,16 @@
-import { Button, Card, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import { Button, Group, Stack, Text } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { api, downloadFile } from '@/api/client';
 import type { Guardian, GuardianBalance } from '@/api/types';
 import { Can, useAuth } from '@/auth/AuthContext';
-import { Money, PageHeader, QueryState } from '@/components/ui';
+import { notifyError } from '@/components/ProblemAlert';
+import { Money, PageHeader, QueryState, Section } from '@/components/ui';
 import { displayPhone } from '@/lib/format';
 import { GhanaCardReveal } from './GhanaCardReveal';
+
+const rowStyle = { borderTop: '1px solid var(--k-line)', padding: '12px 0' } as const;
 
 export default function GuardianPage() {
   const { id = '' } = useParams();
@@ -18,106 +22,71 @@ export default function GuardianPage() {
     enabled: can('balances:read'),
   });
   return (
-    <QueryState query={query} label="Loading parent…">
+    <QueryState query={query} label="Loading guardian…">
       {(g) => (
-        <Stack>
+        <Stack gap="md" maw={1000}>
           <PageHeader
             title={g.fullName}
-            subtitle="Parent or guardian"
+            subtitle={
+              <>
+                {g.phonePrimary ? <a href={`tel:${g.phonePrimary}`}>{displayPhone(g.phonePrimary)}</a> : null}
+                {g.phoneSecondary ? <> · <a href={`tel:${g.phoneSecondary}`}>{displayPhone(g.phoneSecondary)}</a></> : null}
+                {g.email ? ` · ${g.email}` : ''}
+                {g.occupation ? ` · ${[g.occupation, g.workplace].filter(Boolean).join(', ')}` : ''}
+              </>
+            }
             actions={
               <Can perm="balances:export">
-                <Button variant="light" onClick={() => void downloadFile('/guardians/{guardianId}/statement.pdf', { guardianId: id })}>
-                  Family fee statement (PDF)
+                <Button variant="default" onClick={() => void downloadFile('/guardians/{guardianId}/statement.pdf', { guardianId: id }).catch((e) => notifications.show(notifyError(e)))}>
+                  Family statement (PDF)
                 </Button>
               </Can>
             }
           />
-          <Card withBorder>
-            <SimpleGrid cols={{ base: 1, sm: 2 }}>
-              <div>
-                <Text size="xs" c="dimmed">
-                  Phone
+          <Section title="Linked children">
+            {(g.children ?? []).length === 0 && <Text size="sm">No children linked.</Text>}
+            {(g.children ?? []).map((c) => {
+              const row = balance.data?.children.find((x) => x.studentId === c.id);
+              return (
+                <Group key={c.id} justify="space-between" style={rowStyle} wrap="nowrap">
+                  <Text size="sm">
+                    <Link to={`/students/${c.id}`} style={{ color: 'inherit' }}>
+                      {c.fullName}
+                    </Link>{' '}
+                    · {c.className ?? '—'}
+                  </Text>
+                  <Text size="sm">{row ? <Money value={row.balancePesewas} owes /> : can('balances:read') ? <Text span size="xs" c="dimmed">Not the fee payer</Text> : null}</Text>
+                </Group>
+              );
+            })}
+            {balance.data && (
+              <Group justify="space-between" pt="sm" style={{ borderTop: '2px solid var(--k-ink)' }}>
+                <Text fw={600}>Combined balance</Text>
+                <Text fw={700}>
+                  <Money value={balance.data.totalPesewas} owes />
                 </Text>
-                <a href={`tel:${g.phonePrimary}`}>{displayPhone(g.phonePrimary)}</a>
-                {g.phoneSecondary && (
-                  <>
-                    {' · '}
-                    <a href={`tel:${g.phoneSecondary}`}>{displayPhone(g.phoneSecondary)}</a>
-                  </>
-                )}
-              </div>
-              <div>
-                <Text size="xs" c="dimmed">
+              </Group>
+            )}
+          </Section>
+          <Section title="Details">
+            <Stack gap="xs">
+              <Group gap="xs">
+                <Text size="sm" c="dimmed" w={110}>
                   Ghana Card
                 </Text>
                 <GhanaCardReveal guardianId={id} last4={g.ghanaCardLast4} />
-              </div>
-              <div>
-                <Text size="xs" c="dimmed">
-                  Occupation
-                </Text>
-                <Text size="sm">{[g.occupation, g.workplace].filter(Boolean).join(', ') || '—'}</Text>
-              </div>
+              </Group>
               {g.homeAddress !== undefined && (
-                <div>
-                  <Text size="xs" c="dimmed">
+                <Group gap="xs">
+                  <Text size="sm" c="dimmed" w={110}>
                     Home address
                   </Text>
                   <Text size="sm">{g.homeAddress || '—'}</Text>
-                </div>
+                </Group>
               )}
-            </SimpleGrid>
-          </Card>
-          <Title order={2} size="h4">
-            Children in this school
-          </Title>
-          {can('balances:read') ? (
-            <QueryState query={balance}>
-              {(b) => (
-                <div className="table-scroll">
-                  <Table miw={420}>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Child</Table.Th>
-                        <Table.Th>Class</Table.Th>
-                        <Table.Th ta="right">Balance</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {(g.children ?? []).map((c) => {
-                        const row = b.children.find((x) => x.studentId === c.id);
-                        return (
-                          <Table.Tr key={c.id}>
-                            <Table.Td>
-                              <Link to={`/students/${c.id}`}>{c.fullName}</Link>
-                            </Table.Td>
-                            <Table.Td>{c.className}</Table.Td>
-                            <Table.Td ta="right">{row ? <Money value={row.balancePesewas} owes /> : <Text size="xs" c="dimmed">Not fee payer</Text>}</Table.Td>
-                          </Table.Tr>
-                        );
-                      })}
-                    </Table.Tbody>
-                    <Table.Tfoot>
-                      <Table.Tr>
-                        <Table.Th colSpan={2}>Total for children this parent pays for</Table.Th>
-                        <Table.Th ta="right">
-                          <Money value={b.totalPesewas} owes />
-                        </Table.Th>
-                      </Table.Tr>
-                    </Table.Tfoot>
-                  </Table>
-                </div>
-              )}
-            </QueryState>
-          ) : (
-            <Stack gap={4}>
-              {(g.children ?? []).map((c) => (
-                <Link key={c.id} to={`/students/${c.id}`}>
-                  {c.fullName} · {c.className}
-                </Link>
-              ))}
             </Stack>
-          )}
+          </Section>
+          <div className="k-msg k-msg-success">Brothers and sisters are linked through a shared parent or guardian. Check the children above belong to this family; to remove a wrong link, open the child's record.</div>
         </Stack>
       )}
     </QueryState>

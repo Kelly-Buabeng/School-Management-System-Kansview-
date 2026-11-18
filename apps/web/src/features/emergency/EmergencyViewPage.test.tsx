@@ -12,8 +12,8 @@ describe('Emergency View', () => {
     signInAs('teacher'); // Kwame is in the teacher's own class
     const id = kwame().id;
     renderRoute(<EmergencyViewPage />, { path: '/students/:id/emergency', url: `/students/${id}/emergency` });
-    expect(await screen.findByRole('heading', { name: 'Kwame Agyei Mensah' })).toBeInTheDocument();
-    expect(screen.getByRole('alert', { name: /medical alert/i })).toHaveTextContent(/SEVERE PEANUT ALLERGY/);
+    expect(await screen.findByRole('heading', { name: 'Kwame Agyei Mensah · Basic 2' })).toBeInTheDocument();
+    expect(screen.getByRole('alert', { name: 'Medical alerts' })).toHaveTextContent(/SEVERE PEANUT ALLERGY/);
     expect(screen.getByText(/Peanuts \(severe/)).toBeInTheDocument();
     const calls = screen.getAllByRole('link', { name: /^Call / });
     expect(calls[0]).toHaveAttribute('href', 'tel:+233240000100');

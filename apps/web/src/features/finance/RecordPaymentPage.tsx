@@ -9,7 +9,7 @@ export default function RecordPaymentPage() {
   const navigate = useNavigate();
   return (
     <>
-      <PageHeader title="Record a payment" subtitle="Cash, Mobile Money, bank or cheque received at the office." />
+      <PageHeader title="Record payment" subtitle="Cash, Mobile Money, bank or cheque received at the office." />
       <PaymentForm
         initialStudentId={params.get('studentId') ?? undefined}
         onSaved={(p) => {

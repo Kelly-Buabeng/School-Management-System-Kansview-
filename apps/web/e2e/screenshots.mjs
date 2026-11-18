@@ -33,6 +33,8 @@ async function signIn(page, user) {
     await page.getByRole('button', { name: 'Continue' }).click();
   }
   await page.locator('#main').waitFor();
+  // Let the mock service worker finish taking control before the next full page load.
+  await page.waitForTimeout(1500);
 }
 
 async function openKwame(page, suffix = '') {
@@ -74,7 +76,9 @@ async function go(page, s) {
     default:
       await page.goto(`${BASE}${s.path}`);
   }
-  await page.waitForFunction(() => !/Loading|Searching/.test(document.body.innerText), null, { timeout: 8000 }).catch(() => {});
+  await page.locator('#main h1, main h1').first().waitFor({ timeout: 10000 }).catch(() => {});
+  await page.waitForFunction(() => !document.querySelector('.mantine-Loader-root') && !/Loading|Searching|Counting/.test(document.body.innerText), null, { timeout: 10000 }).catch(() => {});
+  await page.addStyleTag({ content: '.mantine-Affix-root{display:none!important}' });
   await page.waitForTimeout(400);
 }
 
@@ -83,10 +87,12 @@ for (const s of SCREENS.filter((x) => x.name.includes(filter))) {
   for (const [label, viewport] of [['desktop', { width: 1366, height: 768 }], ['phone', { width: 360, height: 780 }]]) {
     const ctx = await browser.newContext({ viewport });
     const page = await ctx.newPage();
+    if (process.env.DEBUG) page.on('console', (m) => console.log('  console:', m.type(), m.text().slice(0, 200)));
     try {
       if (s.user) await signIn(page, s.user);
       await go(page, s);
-      await page.screenshot({ path: `${out}/${s.name}-${label}.png`, fullPage: label === 'phone' });
+      if (process.env.DEBUG) console.log('  main:', (await page.locator('#main').innerText().catch(() => '')).slice(0, 80).replace(/\n/g, ' '), page.url());
+      await page.screenshot({ path: `${out}/${s.name}-${label}.png`, fullPage: false });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       console.log(`${s.name}-${label}${overflow > 0 ? `  (horizontal overflow ${overflow}px)` : ''}`);
     } catch (e) {

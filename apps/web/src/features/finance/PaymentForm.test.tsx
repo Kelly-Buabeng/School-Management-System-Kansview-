@@ -17,18 +17,18 @@ function setup() {
 }
 
 async function chooseMethod(user: ReturnType<typeof userEvent.setup>, label: string) {
-  await user.click(screen.getByRole('textbox', { name: /How was it paid/ }));
+  await user.click(screen.getByRole('textbox', { name: /^Method/ }));
   await user.click(await screen.findByRole('option', { name: label, hidden: true }));
 }
 
 describe('payment form', () => {
   it('warns as the bursar types a used MoMo reference, then needs a reason to override the 409', async () => {
     const { onSaved, user } = setup();
-    await screen.findByText(/What does this payment cover/);
-    await user.type(screen.getByLabelText(/Amount received/), '150');
+    await screen.findByText(/What is this payment for/);
+    await user.type(screen.getByLabelText(/Total received/), '150');
     await chooseMethod(user, 'MTN Mobile Money');
-    await user.type(screen.getByLabelText(/Transaction ID/), KNOWN.momoReference);
-    expect(await screen.findByText('This reference number was already used')).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^Reference number/), KNOWN.momoReference);
+    expect(await screen.findByText(/Check this is not a repeat/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Save payment' }));
     expect(await screen.findByText(/was recorded on receipt RCP-/)).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe('payment form', () => {
 
   it('requires a reference for everything except cash', async () => {
     const { user, onSaved } = setup();
-    await user.type(await screen.findByLabelText(/Amount received/), '20');
+    await user.type(await screen.findByLabelText(/Total received/), '20');
     await chooseMethod(user, 'Bank transfer / deposit');
     await user.click(screen.getByRole('button', { name: 'Save payment' }));
     expect(await screen.findByText(/Enter the reference number/)).toBeInTheDocument();
@@ -54,7 +54,7 @@ describe('payment form', () => {
   it('when the reply is lost, says "Not sure it saved", never "Saved", and finds it by idempotency key', async () => {
     const { user, onSaved, student } = setup();
     const before = getDb().payments.filter((p) => p.studentId === student.id).length;
-    await user.type(await screen.findByLabelText(/Amount received/), '75.50');
+    await user.type(await screen.findByLabelText(/Total received/), '75.50');
     mockControl.setMode('lose-next-save');
     await user.click(screen.getByRole('button', { name: 'Save payment' }));
     expect(await screen.findByText('Not sure it saved — check before trying again')).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe('payment form', () => {
   it('when offline, retrying re-uses the same Idempotency-Key so the payment is recorded once', async () => {
     const { user, onSaved, student } = setup();
     const before = getDb().payments.filter((p) => p.studentId === student.id).length;
-    await user.type(await screen.findByLabelText(/Amount received/), '40');
+    await user.type(await screen.findByLabelText(/Total received/), '40');
     mockControl.setMode('offline');
     await user.click(screen.getByRole('button', { name: 'Save payment' }));
     await screen.findByText('Not sure it saved — check before trying again');
@@ -84,6 +84,30 @@ describe('payment form', () => {
     const keys = getDb().payments.filter((p) => p.studentId === student.id).map((p) => p.idempotencyKey);
     expect(keys.length).toBe(before + 1);
     expect(keys.at(-1)).toMatch(/^pay-/);
+  });
+});
+
+describe('per-fee allocation', () => {
+  it('toggled fees with "Paying now" amounts are posted as explicit allocations; the rest becomes credit', async () => {
+    const { user, onSaved, student } = setup();
+    await screen.findAllByRole('switch');
+    const line = screen.getAllByRole('switch').find((el) => !(el as HTMLInputElement).disabled)!;
+    const feeName = line.getAttribute('aria-label')!.replace(/^Pay /, '').replace(/ \(.*$/, '');
+    await user.click(line);
+    const payingNow = await screen.findByLabelText('Paying now (GH₵)');
+    await user.clear(payingNow);
+    await user.type(payingNow, '300');
+    expect(screen.getByLabelText(/Total received/)).toHaveValue('300.00');
+    await user.clear(screen.getByLabelText(/Total received/));
+    await user.type(screen.getByLabelText(/Total received/), '20000');
+    // Typing a total re-splits across the chosen fee (capped at its balance); the rest is shown as credit.
+    expect(screen.getByText('Kept as credit')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save payment' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    const p = getDb().payments.filter((x) => x.studentId === student.id).at(-1)!;
+    expect(p.allocations).toHaveLength(1);
+    expect(p.allocations[0]!.feeItemName).toBe(feeName);
+    expect(p.creditCreatedPesewas).toBe(2000000 - p.allocations[0]!.amountPesewas);
   });
 });
 

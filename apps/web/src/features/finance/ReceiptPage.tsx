@@ -7,8 +7,8 @@ import { api, downloadFile } from '@/api/client';
 import type { Payment } from '@/api/types';
 import { Can, useAuth } from '@/auth/AuthContext';
 import { notifyError, ProblemAlert } from '@/components/ProblemAlert';
-import { Money, PageHeader, QueryState, StatusBadge } from '@/components/ui';
-import { formatDateTime, PAYMENT_METHOD_LABELS } from '@/lib/format';
+import { Message, Money, PageHeader, QueryState } from '@/components/ui';
+import { formatDate, formatDateTime, PAYMENT_METHOD_LABELS } from '@/lib/format';
 import { newIdempotencyKey } from '@/lib/idempotency';
 
 type PaymentDetail = Payment & { pendingReversal?: { requestedBy: string; reason: string; at: string } | null; awaitingApproval?: boolean };
@@ -18,6 +18,7 @@ export default function ReceiptPage() {
   const [params] = useSearchParams();
   const qc = useQueryClient();
   const { me } = useAuth();
+  const school = useQuery({ queryKey: ['school'], queryFn: () => api.get<{ name?: string }>('/settings/school'), staleTime: 10 * 60_000, retry: false });
   const query = useQuery({ queryKey: ['payment', id], queryFn: () => api.get<PaymentDetail>('/payments/{id}', { path: { id } }) });
   const [reverseOpen, setReverseOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -42,116 +43,99 @@ export default function ReceiptPage() {
   return (
     <QueryState query={query} label="Loading receipt…">
       {(p) => (
-        <Stack maw={640}>
+        <Stack maw={560}>
           <PageHeader
-            title={`Receipt ${p.receiptNo}`}
+            title="Receipt"
             actions={
               <Group className="no-print">
-                <Button variant="light" onClick={() => window.print()}>
-                  Print
-                </Button>
-                <Button variant="light" onClick={() => pdf.mutate()} loading={pdf.isPending}>
+                <Button variant="default" onClick={() => pdf.mutate()} loading={pdf.isPending}>
                   PDF receipt
+                </Button>
+                <Button size="md" onClick={() => window.print()}>
+                  Print receipt
                 </Button>
               </Group>
             }
           />
           {params.get('new') && (
-            <Alert color="green" title="Saved" className="no-print">
-              The server confirmed this payment. Give the receipt number {p.receiptNo} to the payer.
-            </Alert>
-          )}
-          {p.status === 'reversed' && (
-            <Alert color="red" title="REVERSED">
-              Reversed {formatDateTime(p.reversal?.reversedAt)} by {p.reversal?.reversedBy}: {p.reversal?.reason} ({p.reversal?.reversalNo})
-            </Alert>
+            <div className="no-print">
+              <Message kind="success">Saved. The server confirmed this payment and the receipt is ready to print. Give the receipt number {p.receiptNo} to the payer.</Message>
+            </div>
           )}
           {p.pendingReversal && (
-            <Alert color="yellow" title="Reversal waiting for approval">
-              Requested by {p.pendingReversal.requestedBy}: {p.pendingReversal.reason}
+            <Message kind="warning">
+              <b>Reversal waiting for approval.</b> Requested by {p.pendingReversal.requestedBy}: {p.pendingReversal.reason}
               <Can perm="payments:reverse_approve">
                 {p.pendingReversal.requestedBy !== me?.fullName && (
-                  <Button mt="xs" size="xs" color="red" onClick={() => approve.mutate()} loading={approve.isPending} display="block">
+                  <Button mt="xs" size="xs" onClick={() => approve.mutate()} loading={approve.isPending} display="block">
                     Approve reversal
                   </Button>
                 )}
               </Can>
-            </Alert>
+            </Message>
           )}
-          <Card withBorder>
-            <Table>
-              <Table.Tbody>
-                <Table.Tr>
-                  <Table.Th w={160}>Student</Table.Th>
-                  <Table.Td>
-                    <Link to={`/students/${p.studentId}?tab=finance`}>{p.studentName}</Link> ({p.studentCode})
-                  </Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>Amount</Table.Th>
-                  <Table.Td fw={700} fz="lg">
-                    <Money value={p.amountPesewas} />
-                  </Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>Method</Table.Th>
-                  <Table.Td>
-                    {PAYMENT_METHOD_LABELS[p.method ?? ''] ?? p.method}
-                    {p.referenceNo ? ` — ref. ${p.referenceNo}` : ''}
-                  </Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>Received</Table.Th>
-                  <Table.Td>{formatDateTime(p.receivedAt)}</Table.Td>
-                </Table.Tr>
-                {p.payerName && (
-                  <Table.Tr>
-                    <Table.Th>Paid by</Table.Th>
-                    <Table.Td>{p.payerName}</Table.Td>
-                  </Table.Tr>
-                )}
-                <Table.Tr>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Td>
-                    <StatusBadge status={p.status ?? 'confirmed'} />
-                  </Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>Recorded by</Table.Th>
-                  <Table.Td>{p.recordedBy}</Table.Td>
-                </Table.Tr>
-              </Table.Tbody>
-            </Table>
-            <Title order={2} size="h5" mt="md">
-              Applied to
-            </Title>
-            <Table fz="sm">
-              <Table.Tbody>
-                {(p.allocations ?? []).map((a, i) => (
-                  <Table.Tr key={i}>
-                    <Table.Td>{a.feeItemName}</Table.Td>
-                    <Table.Td ta="right">
-                      <Money value={a.amountPesewas} />
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-                {(p.creditCreatedPesewas ?? 0) > 0 && (
-                  <Table.Tr>
-                    <Table.Td>Kept as credit</Table.Td>
-                    <Table.Td ta="right">
-                      <Money value={p.creditCreatedPesewas} />
-                    </Table.Td>
-                  </Table.Tr>
-                )}
-              </Table.Tbody>
-            </Table>
-            <Text mt="sm" size="sm">
-              Balance after this payment: <Money value={p.balanceAfterPesewas} owes />
+          <Card radius={0} p="xl" style={{ background: '#fff' }} aria-label={`Receipt ${p.receiptNo}`}>
+            <Text ta="center" className="k-serif" fz={20} fw={600}>
+              {school.data?.name ?? 'Kansview School'}
             </Text>
+            <Text ta="center" size="sm" c="dimmed" mb="md">
+              Official fee receipt
+            </Text>
+            {p.status === 'reversed' && (
+              <Text ta="center" fw={700} c="var(--k-red)" mb="sm" style={{ letterSpacing: 2 }}>
+                REVERSED
+              </Text>
+            )}
+            <Group justify="space-between" mb={8}>
+              <Text size="sm">Receipt no. {p.receiptNo}</Text>
+              <Text size="sm">{formatDate(p.receivedAt)}</Text>
+            </Group>
+            <Text size="sm" mb="sm">
+              Received from <b>{p.payerName ?? '—'}</b> for{' '}
+              <Link to={`/students/${p.studentId}?tab=finance`} style={{ color: 'inherit', fontWeight: 600 }}>
+                {p.studentName}
+              </Link>{' '}
+              ({p.studentCode})
+            </Text>
+            <div style={{ borderTop: '1px solid var(--k-line)' }}>
+              {(p.allocations ?? []).map((al, i) => (
+                <Group key={i} justify="space-between" py={6}>
+                  <Text size="sm">{al.feeItemName}</Text>
+                  <Text size="sm">
+                    <Money value={al.amountPesewas} />
+                  </Text>
+                </Group>
+              ))}
+              {(p.creditCreatedPesewas ?? 0) > 0 && (
+                <Group justify="space-between" py={6}>
+                  <Text size="sm">Kept as credit</Text>
+                  <Text size="sm">
+                    <Money value={p.creditCreatedPesewas} />
+                  </Text>
+                </Group>
+              )}
+            </div>
+            <Group justify="space-between" pt="sm" style={{ borderTop: '2px solid var(--k-ink)' }} wrap="nowrap">
+              <Text size="sm" fw={600}>
+                Total paid · {PAYMENT_METHOD_LABELS[p.method ?? ''] ?? p.method}
+                {p.referenceNo ? ` ${p.referenceNo}` : ''}
+              </Text>
+              <Text size="sm" fw={700}>
+                <Money value={p.amountPesewas} />
+              </Text>
+            </Group>
+            <Text size="sm" c="dimmed" mt="sm">
+              Balance remaining: <Money value={p.balanceAfterPesewas} owes /> · Received by {(p as { recordedByName?: string }).recordedByName ?? p.recordedBy}
+            </Text>
+            {p.status === 'reversed' && (
+              <Text size="sm" mt="sm">
+                Reversed {formatDateTime(p.reversal?.reversedAt)} by {p.reversal?.reversedBy}: {p.reversal?.reason} ({p.reversal?.reversalNo})
+              </Text>
+            )}
           </Card>
           {p.status === 'confirmed' && !p.pendingReversal && (
             <Can perm="payments:reverse">
-              <Button color="red" variant="outline" w="fit-content" className="no-print" onClick={() => setReverseOpen(true)}>
+              <Button variant="default" w="fit-content" className="no-print" onClick={() => setReverseOpen(true)}>
                 Reverse this payment
               </Button>
             </Can>

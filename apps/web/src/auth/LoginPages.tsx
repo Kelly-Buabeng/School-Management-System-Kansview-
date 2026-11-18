@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, Anchor, Box, Button, Center, Paper, PasswordInput, PinInput, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Anchor, Box, Button, Center, PasswordInput, PinInput, Stack, Text, TextInput, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useState, type ReactNode } from 'react';
 import { Controller, useForm } from 'react-hook-form';
@@ -10,18 +10,29 @@ import { ProblemAlert } from '@/components/ProblemAlert';
 import { useAuth } from './AuthContext';
 
 function AuthCard({ title, children }: { title: string; children: ReactNode }) {
+  // Split panel: navy brand panel (hidden on small phones) and the form on Paper.
   return (
-    <Center mih="100vh" p="md" bg="gray.1">
-      <Paper withBorder shadow="sm" p="lg" w="100%" maw={400} component="main">
-        <Text fw={700} c="blue.8" mb={4}>
-          Kansview School Office
+    <div style={{ minHeight: '100vh', display: 'flex', flexWrap: 'wrap', background: 'var(--k-paper)' }}>
+      <Box visibleFrom="sm" style={{ flex: '1 1 40%', background: 'var(--k-navy)', color: '#fff', padding: '48px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100vh' }}>
+        <Text className="k-serif" fz={30} fw={600}>
+          Kansview School
         </Text>
-        <Title order={1} size="h3" mb="md">
-          {title}
-        </Title>
-        {children}
-      </Paper>
-    </Center>
+        <Text className="k-serif" fz={30} lh={1.25} maw={420}>
+          Student records, fees and family contacts in one place.
+        </Text>
+      </Box>
+      <Center component="main" style={{ flex: '1 1 50%' }} p="lg">
+        <div style={{ width: '100%', maxWidth: 360 }}>
+          <Text hiddenFrom="sm" className="k-serif" fz={20} fw={600} c="navy.7" mb="md">
+            Kansview School
+          </Text>
+          <Title order={1} mb="md">
+            {title}
+          </Title>
+          {children}
+        </div>
+      </Center>
+    </div>
   );
 }
 
@@ -67,13 +78,16 @@ export function LoginPage() {
           )}
           {startupError && !error && <ProblemAlert error={startupError} />}
           <ProblemAlert error={error} />
-          <TextInput label="Username" autoComplete="username" autoCapitalize="none" autoFocus {...form.register('username')} error={form.formState.errors.username?.message} />
-          <PasswordInput label="Password" autoComplete="current-password" {...form.register('password')} error={form.formState.errors.password?.message} />
-          <Button type="submit" loading={form.formState.isSubmitting} fullWidth>
+          <TextInput size="md" label="Username" autoComplete="username" autoCapitalize="none" autoFocus {...form.register('username')} error={form.formState.errors.username?.message} />
+          <PasswordInput size="md" label="Password" autoComplete="current-password" {...form.register('password')} error={form.formState.errors.password?.message} />
+          <Text size="sm">
+            Forgot your password? Ask the school administrator to reset it.
+          </Text>
+          <Button type="submit" size="md" loading={form.formState.isSubmitting} fullWidth>
             Sign in
           </Button>
           <Text size="xs" c="dimmed">
-            Forgot your password? Ask the school administrator to reset it.
+            Your session ends after a period without activity. After 5 wrong passwords the account is locked for a while. Contact an administrator to unlock it sooner.
           </Text>
           {API_MODE === 'mock' && (
             <Alert color="gray" title="Demo accounts (fake data)">

@@ -58,6 +58,10 @@ body {
   color: var(--k-ink);
 }
 
+a {
+  color: var(--k-navy);
+}
+
 .k-serif {
   font-family: var(--k-serif);
 }

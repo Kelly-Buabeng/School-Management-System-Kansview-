@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Card, Checkbox, Group, Modal, Select, SimpleGrid, Stack, Stepper, Switch, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Card, Checkbox, Group, Modal, Select, SimpleGrid, Stack, Switch, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -8,7 +8,8 @@ import { useAcademicYears, useClasses } from '@/api/queries';
 import type { ListResponse, PromotionAction, PromotionItem, PromotionRun } from '@/api/types';
 import { Can } from '@/auth/AuthContext';
 import { ProblemAlert } from '@/components/ProblemAlert';
-import { Money, PageHeader, StatusBadge } from '@/components/ui';
+import { Money, PageHeader, Pill, StatusBadge, StepPills } from '@/components/ui';
+import { money } from '@/lib/format';
 import { formatDateTime } from '@/lib/format';
 import { newIdempotencyKey } from '@/lib/idempotency';
 
@@ -160,7 +161,7 @@ export default function PromotionWizard() {
       qc.setQueryData(['promotion-run', r.id], r);
       void qc.invalidateQueries({ queryKey: ['promotion-runs'] });
       void qc.invalidateQueries({ queryKey: ['classes'] });
-      setStep(3);
+      setStep(4);
     },
   });
 
@@ -176,13 +177,8 @@ export default function PromotionWizard() {
 
   return (
     <>
-      <PageHeader title="End-of-year promotion" subtitle="Preview first, set exceptions, then commit. You can undo for a limited time." />
-      <Stepper active={step} size="sm" mb="lg" wrap>
-        <Stepper.Step label="Choose classes" />
-        <Stepper.Step label="Preview and exceptions" />
-        <Stepper.Step label="Confirm" />
-        <Stepper.Step label="Done" />
-      </Stepper>
+      <PageHeader title="Year-end promotion" subtitle="Preview first, set exceptions, then commit. You can undo for a limited time." />
+      <StepPills steps={['Select class', 'Preview', 'Exceptions', 'Confirm', 'Result']} active={step} />
 
       {step === 0 && (
         <Stack maw={760}>
@@ -191,7 +187,7 @@ export default function PromotionWizard() {
               <TextInput label="From year" value={current?.name ?? ''} readOnly />
               <Select label="Into year" data={(years.data ?? []).filter((y) => y.id !== current?.id && y.startDate > (current?.startDate ?? '')).map((y) => ({ value: y.id, label: y.name }))} value={toYear} onChange={setToYear} placeholder="Choose the next year" />
             </SimpleGrid>
-            <Checkbox.Group label="Classes to promote" value={selected} onChange={setSelected}>
+            <Checkbox.Group label="Class to promote" description="Each class moves to the next level in the new year. Final-year classes graduate." value={selected} onChange={setSelected}>
               <Group mt="xs">
                 <Button size="compact-xs" variant="subtle" onClick={() => setSelected((classes.data ?? []).map((c) => c.id))}>
                   Select all
@@ -207,7 +203,7 @@ export default function PromotionWizard() {
           <ProblemAlert error={create.error} />
           <Can perm="promotion:create">
             <Button w="fit-content" disabled={!toYear || selected.length === 0} loading={create.isPending} onClick={() => create.mutate()}>
-              Build preview (nothing changes yet)
+              Preview promotion
             </Button>
           </Can>
           {(runs.data ?? []).length > 0 && (
@@ -225,7 +221,7 @@ export default function PromotionWizard() {
                         <StatusBadge status={x.status} />
                       </Table.Td>
                       <Table.Td>
-                        <Button size="compact-xs" variant="light" onClick={() => { setRunId(x.id); setStep(x.status === 'draft' ? 1 : 3); }}>
+                        <Button size="compact-xs" variant="light" onClick={() => { setRunId(x.id); setStep(x.status === 'draft' ? 1 : 4); }}>
                           Open
                         </Button>
                       </Table.Td>
@@ -239,6 +235,49 @@ export default function PromotionWizard() {
       )}
 
       {step === 1 && r && (
+        <Stack>
+          <Card>
+            <Text fw={600} mb="xs">
+              {r.items.length} students: {Object.entries(counts).map(([a, n]) => `${n} ${ACTION_LABELS[a as PromotionAction].toLowerCase()}`).join(', ')}.
+            </Text>
+            <Text size="sm" c="dimmed">
+              {r.items.filter((i) => i.arrearsFlag).length} student(s) owe fees ({r.arrearsPolicy === 'block' ? 'they need a reason to move up' : r.arrearsPolicy === 'warn' ? 'shown for information' : 'not checked'}).
+            </Text>
+          </Card>
+          <Card p={0}>
+            <div className="table-scroll">
+              <Table miw={560}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Student</Table.Th>
+                    <Table.Th>From</Table.Th>
+                    <Table.Th>To</Table.Th>
+                    <Table.Th>Fees</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {r.items.map((i) => (
+                    <Table.Tr key={i.id}>
+                      <Table.Td>{i.student.fullName}</Table.Td>
+                      <Table.Td>{i.fromClassName}</Table.Td>
+                      <Table.Td>{i.targetClassName ?? (i.action === 'graduate' ? 'Graduates' : '—')}</Table.Td>
+                      <Table.Td>{i.arrearsFlag ? <Pill tone="arrears">Owes {money(i.outstandingPesewas)}</Pill> : <Pill tone="paid">Clear</Pill>}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </div>
+          </Card>
+          <Group>
+            <Button variant="default" onClick={() => setStep(0)}>
+              Back
+            </Button>
+            <Button onClick={() => setStep(2)}>Next: exceptions</Button>
+          </Group>
+        </Stack>
+      )}
+
+      {step === 2 && r && (
         <Stack>
           <Alert color={r.arrearsPolicy === 'block' ? 'orange' : 'blue'}>
             Arrears rule: <b>{r.arrearsPolicy === 'block' ? 'students who owe cannot move up without a reason' : r.arrearsPolicy === 'warn' ? 'students who owe are highlighted' : 'fees are not checked'}</b>. Change the action for any student who should not simply move up.
@@ -263,10 +302,10 @@ export default function PromotionWizard() {
             </Table>
           </div>
           <Group>
-            <Button variant="default" onClick={() => setStep(0)}>
+            <Button variant="default" onClick={() => setStep(1)}>
               Back
             </Button>
-            <Button onClick={() => setStep(2)} disabled={dirty.size > 0}>
+            <Button onClick={() => setStep(3)} disabled={dirty.size > 0}>
               Next: confirm
             </Button>
             {dirty.size > 0 && (
@@ -278,7 +317,7 @@ export default function PromotionWizard() {
         </Stack>
       )}
 
-      {step === 2 && r && (
+      {step === 3 && r && (
         <Stack maw={640}>
           <Card withBorder>
             <Title order={2} size="h4" mb="sm">
@@ -303,7 +342,7 @@ export default function PromotionWizard() {
           {missingReasons.length > 0 && <Alert color="red">{missingReasons.length} exception(s) still need a reason.</Alert>}
           <ProblemAlert error={commit.error} />
           <Group>
-            <Button variant="default" onClick={() => setStep(1)}>
+            <Button variant="default" onClick={() => setStep(2)}>
               Back
             </Button>
             <Can perm="promotion:commit">
@@ -327,7 +366,7 @@ export default function PromotionWizard() {
         </Stack>
       )}
 
-      {step === 3 && r && (
+      {step === 4 && r && (
         <Stack maw={640}>
           {r.status === 'committed' ? (
             <Alert color="green" title="Promotion committed">

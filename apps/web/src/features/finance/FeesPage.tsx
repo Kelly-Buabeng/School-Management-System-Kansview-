@@ -1,102 +1,118 @@
-import { Accordion, Button, Group, Select, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Button, Checkbox, Group, Select, SimpleGrid, Stack, Text, TextInput } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { formatCedis } from '@sms/shared';
 import { listOf, normFeeItem } from '@/api/normalise';
 import { api } from '@/api/client';
 import { useCurrentTerm, useLevels } from '@/api/queries';
-import type { FeeItem, FeeStructure, ListResponse } from '@/api/types';
+import type { FeeItem, FeeStructure } from '@/api/types';
 import { Can, useAuth } from '@/auth/AuthContext';
 import { notifyError, ProblemAlert } from '@/components/ProblemAlert';
-import { EmptyState, Money, PageHeader, QueryState, StatusBadge } from '@/components/ui';
-import { formatCedis, tryParseCedis } from '@/lib/format';
+import { Chip, Message, Money, PageHeader, QueryState, Section, StatusBadge } from '@/components/ui';
+import { money, tryParseCedis } from '@/lib/format';
 
-/** The list may come without lines; load the full structure when needed. */
-function StructureLoader({ fs, items }: { fs: FeeStructure; items: FeeItem[] }) {
-  const detail = useQuery({ queryKey: ['fee-structure', fs.id], queryFn: () => api.get<FeeStructure>('/fee-structures/{id}', { path: { id: fs.id } }), enabled: !fs.lines });
-  if (fs.lines) return <StructureEditor fs={fs} items={items} />;
-  return <QueryState query={detail}>{(full) => <StructureEditor fs={{ ...fs, ...full, lines: full.lines ?? [] }} items={items} />}</QueryState>;
-}
+const plain = (p: number) => formatCedis(p, { symbol: false }).replace(/,/g, '');
 
-function StructureEditor({ fs, items }: { fs: FeeStructure; items: FeeItem[] }) {
+function Editor({ fs, items }: { fs: FeeStructure; items: FeeItem[] }) {
   const qc = useQueryClient();
   const { can } = useAuth();
   const editable = fs.status === 'draft' && can('fee_structures:update');
-  const [amounts, setAmounts] = useState<Record<string, string>>({});
-  useEffect(() => {
-    setAmounts(Object.fromEntries(items.map((i) => [i.id, fs.lines.find((l) => l.feeItemId === i.id) ? formatCedis(fs.lines.find((l) => l.feeItemId === i.id)!.amountPesewas, { symbol: false }) : ''])));
-  }, [fs, items]);
-  const invalid = Object.values(amounts).some((v) => v.trim() !== '' && tryParseCedis(v) === null);
+  const [rows, setRows] = useState<{ feeItemId: string; amount: string }[]>([]);
+  const [adding, setAdding] = useState<string | null>(null);
+  useEffect(() => setRows((fs.lines ?? []).map((l) => ({ feeItemId: l.feeItemId, amount: plain(l.amountPesewas) }))), [fs]);
+  const itemOf = (id: string) => items.find((i) => i.id === id);
+  const invalid = rows.some((r) => tryParseCedis(r.amount) === null);
+  const compulsory = rows.filter((r) => !itemOf(r.feeItemId)?.optional).reduce((a, r) => a + (tryParseCedis(r.amount) ?? 0), 0);
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['fee-structures'] });
+    void qc.invalidateQueries({ queryKey: ['fee-structure', fs.id] });
+  };
   const save = useMutation({
-    mutationFn: () =>
-      api.put('/fee-structures/{id}', {
-        path: { id: fs.id },
-        body: { lines: Object.entries(amounts).filter(([, v]) => (tryParseCedis(v) ?? 0) > 0).map(([feeItemId, v]) => ({ feeItemId, amountPesewas: tryParseCedis(v)! })) },
-      }),
+    mutationFn: () => api.put('/fee-structures/{id}', { path: { id: fs.id }, body: { lines: rows.map((r) => ({ feeItemId: r.feeItemId, amountPesewas: tryParseCedis(r.amount) ?? 0 })) } }),
     onSuccess: () => {
-      notifications.show({ color: 'green', message: 'Fee structure saved.' });
-      void qc.invalidateQueries({ queryKey: ['fee-structures'] });
-      void qc.invalidateQueries({ queryKey: ['fee-structure', fs.id] });
+      notifications.show({ color: 'navy', message: 'Fee setup saved.' });
+      refresh();
     },
   });
-  const activate = useMutation({
-    mutationFn: () => api.post('/fee-structures/{id}/activate', { path: { id: fs.id } }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['fee-structures'] }),
-    onError: (e) => notifications.show(notifyError(e)),
-  });
-  const total = Object.values(amounts).reduce((a, v) => a + (tryParseCedis(v) ?? 0), 0);
+  const activate = useMutation({ mutationFn: () => api.post('/fee-structures/{id}/activate', { path: { id: fs.id } }), onSuccess: refresh, onError: (e) => notifications.show(notifyError(e)) });
+  const unused = items.filter((i) => i.active && !rows.some((r) => r.feeItemId === i.id));
+
   return (
-    <Stack>
-      <Table fz="sm">
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Fee item</Table.Th>
-            <Table.Th ta="right">Amount (GH₵)</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {items.map((i) => (
-            <Table.Tr key={i.id}>
-              <Table.Td>
-                {i.name}
-                {i.optional && <Text span size="xs" c="dimmed"> (optional — only for students who opt in)</Text>}
-              </Table.Td>
-              <Table.Td ta="right">
-                {editable ? (
-                  <TextInput aria-label={`Amount for ${i.name}`} size="xs" w={120} ml="auto" inputMode="decimal" value={amounts[i.id] ?? ''} onChange={(e) => { const v = e.currentTarget.value; setAmounts((a) => ({ ...a, [i.id]: v })); }} error={amounts[i.id] && tryParseCedis(amounts[i.id]!) === null ? 'Invalid' : undefined} />
-                ) : (
-                  <Money value={fs.lines.find((l) => l.feeItemId === i.id)?.amountPesewas ?? 0} />
-                )}
-              </Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-        <Table.Tfoot>
-          <Table.Tr>
-            <Table.Th>Total (all items)</Table.Th>
-            <Table.Th ta="right">
-              <Money value={editable ? total : fs.totalPesewas} />
-            </Table.Th>
-          </Table.Tr>
-        </Table.Tfoot>
-      </Table>
+    <Stack gap="md">
+      <Section
+        title={
+          <Group gap="xs">
+            {fs.levelName}
+            <StatusBadge status={fs.status} label={fs.status === 'active' ? 'Active (locked)' : fs.status} />
+          </Group>
+        }
+      >
+        {rows.map((r, i) => {
+          const item = itemOf(r.feeItemId);
+          return (
+            <SimpleGrid key={r.feeItemId} cols={{ base: 1, sm: 4 }} spacing="sm" py="sm" style={{ borderTop: '1px solid var(--k-line)', alignItems: 'end' }}>
+              <TextInput label="Fee name" value={item?.name ?? 'Fee'} readOnly />
+              <TextInput
+                label="Amount (GH₵)"
+                inputMode="decimal"
+                value={r.amount}
+                readOnly={!editable}
+                onChange={(e) => {
+                  const v = e.currentTarget.value;
+                  setRows((rs) => rs.map((x, j) => (j === i ? { ...x, amount: v } : x)));
+                }}
+                error={tryParseCedis(r.amount) === null ? 'Enter an amount, e.g. 1500' : undefined}
+              />
+              <Checkbox label="Optional" checked={Boolean(item?.optional)} readOnly disabled description={item?.optional ? 'Charged only when picked' : undefined} mb={8} />
+              {editable && (
+                <Button variant="outline" color="red" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} aria-label={`Remove ${item?.name ?? 'fee'}`}>
+                  Remove
+                </Button>
+              )}
+            </SimpleGrid>
+          );
+        })}
+        {editable && (
+          <Group gap="sm" py="sm" style={{ borderTop: '1px solid var(--k-line)' }} align="flex-end" wrap="wrap">
+            <Select aria-label="Fee to add" placeholder="Choose a fee item" data={unused.map((i) => ({ value: i.id, label: i.name }))} value={adding} onChange={setAdding} w={220} />
+            <Button
+              variant="default"
+              style={{ borderStyle: 'dashed', borderColor: 'var(--k-navy)', color: 'var(--k-navy)' }}
+              disabled={!adding}
+              onClick={() => {
+                setRows((rs) => [...rs, { feeItemId: adding!, amount: '' }]);
+                setAdding(null);
+              }}
+            >
+              Add a fee
+            </Button>
+          </Group>
+        )}
+        <Group justify="space-between" pt="sm" style={{ borderTop: '2px solid var(--k-ink)' }}>
+          <Text fw={600}>Compulsory total per student</Text>
+          <Text fw={700}>
+            <Money value={compulsory} />
+          </Text>
+        </Group>
+      </Section>
       <ProblemAlert error={save.error} />
       <Group>
         {editable && (
-          <Button onClick={() => save.mutate()} loading={save.isPending} disabled={invalid}>
-            Save draft
+          <Button size="md" onClick={() => save.mutate()} loading={save.isPending} disabled={invalid}>
+            Save fee setup
           </Button>
         )}
         {fs.status === 'draft' && (
           <Can perm="fee_structures:activate">
             <Button
-              color="green"
-              variant="light"
+              size="md"
+              variant="default"
               onClick={() =>
                 modals.openConfirmModal({
-                  title: 'Activate this fee structure?',
-                  children: <Text size="sm">Once active it cannot be changed, and invoices for this term will use these amounts.</Text>,
+                  title: 'Activate this fee setup?',
+                  children: <Text size="sm">Once active it cannot be changed, and invoices for this term will use these amounts ({money(compulsory)} compulsory per student).</Text>,
                   labels: { confirm: 'Activate', cancel: 'Cancel' },
                   onConfirm: () => activate.mutate(),
                 })
@@ -111,60 +127,67 @@ function StructureEditor({ fs, items }: { fs: FeeStructure; items: FeeItem[] }) 
   );
 }
 
+function Loader({ fs, items }: { fs: FeeStructure; items: FeeItem[] }) {
+  const detail = useQuery({ queryKey: ['fee-structure', fs.id], queryFn: () => api.get<FeeStructure>('/fee-structures/{id}', { path: { id: fs.id } }), enabled: !fs.lines });
+  if (fs.lines) return <Editor fs={fs} items={items} />;
+  return <QueryState query={detail}>{(full) => <Editor fs={{ ...fs, ...full, lines: full.lines ?? [] }} items={items} />}</QueryState>;
+}
+
 export default function FeesPage() {
-  const { terms, term } = useCurrentTerm();
-  const [termId, setTermId] = useState<string | null>(null);
-  const tid = termId ?? term?.id ?? null;
-  const levels = useLevels();
   const qc = useQueryClient();
+  const { terms, term, year } = useCurrentTerm();
+  const levels = useLevels();
+  const [termId, setTermId] = useState<string | null>(null);
+  const [levelId, setLevelId] = useState<string | null>(null);
+  const tid = termId ?? term?.id ?? null;
+  const lid = levelId ?? levels.data?.[0]?.id ?? null;
+  const yearTerms = terms.filter((t) => t.academicYearId === (terms.find((x) => x.id === tid)?.academicYearId ?? year?.id));
   const items = useQuery({ queryKey: ['fee-items'], queryFn: () => api.get<unknown>('/fee-items').then((r) => listOf<Record<string, unknown>>(r).map(normFeeItem)) });
   const structures = useQuery({ queryKey: ['fee-structures', tid], queryFn: () => api.get<unknown>('/fee-structures', { query: { termId: tid } }).then(listOf<FeeStructure>), enabled: Boolean(tid) });
-  const [newLevel, setNewLevel] = useState<string | null>(null);
+  const tIndex = terms.findIndex((t) => t.id === tid);
+  const prevTermId = tIndex > 0 ? terms[tIndex - 1]!.id : null;
+  const prev = useQuery({ queryKey: ['fee-structures', prevTermId], queryFn: () => api.get<unknown>('/fee-structures', { query: { termId: prevTermId } }).then(listOf<FeeStructure>), enabled: Boolean(prevTermId) });
+  const current = structures.data?.find((s) => s.levelId === lid);
+  const prevStructure = prev.data?.find((s) => s.levelId === lid);
   const create = useMutation({
-    mutationFn: () => api.post('/fee-structures', { body: { termId: tid, levelId: newLevel } }),
-    onSuccess: () => {
-      setNewLevel(null);
-      void qc.invalidateQueries({ queryKey: ['fee-structures'] });
-    },
+    mutationFn: (copy: boolean) => api.post('/fee-structures', { body: { termId: tid, levelId: lid, ...(copy && prevStructure ? { copyFromId: prevStructure.id } : {}) } }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['fee-structures'] }),
   });
-  const missing = (levels.data ?? []).filter((l) => !(structures.data ?? []).some((s) => s.levelId === l.id));
+
   return (
     <>
-      <PageHeader title="Fee structures" subtitle="What each level pays per term. Drafts can be edited; active ones are locked." />
-      <Select label="Term" data={terms.map((t) => ({ value: t.id, label: t.name }))} value={tid} onChange={setTermId} maw={320} mb="md" />
+      <PageHeader title="Fee setup" subtitle="Set the fees for each term before invoices go out. Compulsory fees go on every invoice. Optional fees, such as transport or lunch, are only charged when picked." />
+      <Group gap="xs" mb="sm" wrap="wrap" role="group" aria-label="Term">
+        {yearTerms.map((t) => (
+          <Chip key={t.id} selected={t.id === tid} onClick={() => setTermId(t.id)}>
+            {t.name.replace(/^.*(Term \d)$/, '$1')}
+          </Chip>
+        ))}
+      </Group>
+      <Select label="Level" data={(levels.data ?? []).map((l) => ({ value: l.id, label: l.name }))} value={lid} onChange={setLevelId} allowDeselect={false} maw={260} mb="md" />
       <QueryState query={structures}>
-        {(list) => (
-          <Stack>
-            {list.length === 0 && <EmptyState>No fee structures for this term yet.</EmptyState>}
-            <Accordion variant="separated" multiple>
-              {list.map((fs) => (
-                <Accordion.Item key={fs.id} value={fs.id}>
-                  <Accordion.Control>
-                    <Group justify="space-between" pr="sm" wrap="nowrap">
-                      <Text fw={600}>{fs.levelName}</Text>
-                      <Group gap="xs" wrap="nowrap">
-                        <Money value={fs.totalPesewas} />
-                        <StatusBadge status={fs.status} />
-                      </Group>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>{items.data && <StructureLoader fs={fs} items={items.data} />}</Accordion.Panel>
-                </Accordion.Item>
-              ))}
-            </Accordion>
-            <Can perm="fee_structures:create">
-              {missing.length > 0 && (
-                <Group align="flex-end">
-                  <Select label="Add a draft for" data={missing.map((l) => ({ value: l.id, label: l.name }))} value={newLevel} onChange={setNewLevel} />
-                  <Button onClick={() => create.mutate()} disabled={!newLevel} loading={create.isPending}>
-                    Create draft
+        {() =>
+          current && items.data ? (
+            <Loader fs={current} items={items.data} />
+          ) : (
+            <Stack maw={640}>
+              <Message kind="warning">No fees are set for this level and term yet.</Message>
+              <Can perm="fee_structures:create">
+                <Group>
+                  <Button onClick={() => create.mutate(false)} loading={create.isPending && create.variables === false}>
+                    Start a fee setup
                   </Button>
+                  {prevStructure && (
+                    <Button variant="default" onClick={() => create.mutate(true)} loading={create.isPending && create.variables === true}>
+                      Copy fees from previous term
+                    </Button>
+                  )}
                 </Group>
-              )}
-              <ProblemAlert error={create.error} />
-            </Can>
-          </Stack>
-        )}
+                <ProblemAlert error={create.error} />
+              </Can>
+            </Stack>
+          )
+        }
       </QueryState>
     </>
   );

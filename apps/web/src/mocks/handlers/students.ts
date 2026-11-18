@@ -114,7 +114,7 @@ interface AdmitBody {
 }
 
 export const studentHandlers = [
-  r.get('/students', 'students:read', ({ user, query }) => {
+  r.get('/students', 'students:read', ({ user, perms, query }) => {
     const db = getDb();
     const q = (query.get('q') ?? '').toLowerCase().trim();
     const classId = query.get('classId');
@@ -126,7 +126,8 @@ export const studentHandlers = [
     if (levelId) list = list.filter((s) => db.classes.find((c) => c.id === currentEnrolment(db, s.id)?.classId)?.levelId === levelId);
     if (q) list = list.filter((s) => `${s.firstName} ${s.middleNames ?? ''} ${s.lastName} ${s.studentCode}`.toLowerCase().includes(q));
     list.sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`));
-    return json(paginate(list.map((s) => summary(db, s)), query));
+    const withFees = (s: MStudent) => (perms.has('balances:read') ? { ...summary(db, s), balancePesewas: balanceOf(db, s.id), hasArrears: db.ledger.some((l) => l.studentId === s.id && l.entryType === 'opening_balance') && balanceOf(db, s.id) > 0 } : summary(db, s));
+    return json(paginate(list.map(withFees), query));
   }),
 
   r.post('/students/duplicate-check', 'students:create', async ({ body }) => json({ data: findDuplicates(getDb(), await body()) })),

@@ -1,15 +1,16 @@
-import { Alert, Badge, Button, Card, Group, Modal, MultiSelect, Select, SimpleGrid, Stack, Table, Tabs, Text, Textarea } from '@mantine/core';
-import { modals } from '@mantine/modals';
+import { Badge, Button, Group, Modal, Select, SimpleGrid, Stack, Table, Tabs, Text, Textarea } from '@mantine/core';
+import { useDebouncedValue } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { listOf } from '@/api/normalise';
 import { api } from '@/api/client';
-import { classOptions, useClasses, useLevels } from '@/api/queries';
+import { useClasses, useLevels } from '@/api/queries';
 import type { ListResponse, MessagePreview, MessageRecipient, MessageSummary, MessageTemplate, SendMessageRequest } from '@/api/types';
 import { Can, useAuth } from '@/auth/AuthContext';
 import { notifyError, ProblemAlert } from '@/components/ProblemAlert';
-import { EmptyState, Money, PageHeader, QueryState } from '@/components/ui';
+import { Chip, EmptyState, Message, Money, PageHeader, QueryState, Section } from '@/components/ui';
 import { displayPhone, formatDateTime } from '@/lib/format';
 import { newIdempotencyKey } from '@/lib/idempotency';
 
@@ -32,95 +33,164 @@ const STATUS: Record<MessageSummary['status'], { label: string; color: string }>
 function Compose() {
   const qc = useQueryClient();
   const { can } = useAuth();
+  const [params] = useSearchParams();
+  const studentIds = (params.get('students') ?? '').split(',').filter(Boolean);
   const classes = useClasses();
   const levels = useLevels();
   const templates = useQuery({ queryKey: ['templates'], queryFn: () => api.get<unknown>('/message-templates').then(listOf<MessageTemplate>) });
-  const [kind, setKind] = useState<SendMessageRequest['kind']>('announcement');
-  const [audience, setAudience] = useState<'school' | 'class' | 'level' | 'defaulters'>('class');
-  const [ids, setIds] = useState<string[]>([]);
+  const [kind, setKind] = useState<SendMessageRequest['kind']>(params.get('kind') === 'emergency' && can('messages:emergency') ? 'emergency' : 'announcement');
+  const [audience, setAudience] = useState<'school' | 'class' | 'level' | 'defaulters' | 'students'>(studentIds.length ? 'students' : 'class');
+  const [ids, setIds] = useState<string[]>(studentIds);
   const [body, setBody] = useState('');
+  const [reviewing, setReviewing] = useState(false);
   const [key, setKey] = useState(() => newIdempotencyKey('msg'));
-  const request = { kind, channel: 'sms' as const, body, audience: { type: audience, ids: audience === 'class' || audience === 'level' ? ids : [] } };
-  const preview = useMutation({ mutationFn: () => api.post<MessagePreview>('/messages/preview', { body: request }) });
+  const request = { kind, channel: 'sms' as const, body, audience: { type: audience, ids: audience === 'school' || audience === 'defaulters' ? [] : ids } };
+  const ready = Boolean(body.trim()) && (audience === 'school' || audience === 'defaulters' || ids.length > 0);
+  const [debouncedRequest] = useDebouncedValue(JSON.stringify(request), 500);
+  const preview = useQuery({
+    queryKey: ['message-preview', debouncedRequest],
+    queryFn: () => api.post<MessagePreview>('/messages/preview', { body: JSON.parse(debouncedRequest) }),
+    enabled: ready && debouncedRequest === JSON.stringify(request),
+    staleTime: 30_000,
+  });
   const send = useMutation({
     mutationFn: () => api.post<{ status: string; recipientCount: number }>('/messages', { body: request, idempotencyKey: key }),
     onSuccess: (r) => {
-      notifications.show({ color: 'green', message: r.status === 'awaiting_approval' ? 'Sent for approval. It goes out once approved.' : `Queued for ${r.recipientCount} parents.` });
+      notifications.show({ color: 'navy', message: r.status === 'awaiting_approval' ? 'Sent for approval. It goes out once approved.' : `Queued for ${r.recipientCount} guardians.` });
       setBody('');
-      preview.reset();
+      setReviewing(false);
       setKey(newIdempotencyKey('msg'));
       void qc.invalidateQueries({ queryKey: ['messages'] });
     },
   });
-  const ready = body.trim() && (audience === 'school' || audience === 'defaulters' || ids.length > 0);
+  const pick = (type: typeof audience, id?: string) => {
+    if (!id) {
+      setAudience(type);
+      setIds([]);
+      return;
+    }
+    if (audience !== type) {
+      setAudience(type);
+      setIds([id]);
+    } else setIds((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
+  };
+  const p = preview.data;
+
   return (
-    <Stack maw={760}>
-      <Card withBorder>
+    <Section style={{ maxWidth: 900 }}>
+      <Stack gap="md">
+        <div>
+          <Text fw={500} mb={8}>
+            Send to
+          </Text>
+          <Group gap="xs">
+            {studentIds.length > 0 && (
+              <Chip selected={audience === 'students'} onClick={() => { setAudience('students'); setIds(studentIds); }}>
+                {studentIds.length} selected student(s)
+              </Chip>
+            )}
+            <Chip selected={audience === 'school'} onClick={() => pick('school')}>
+              Whole school
+            </Chip>
+            <Chip selected={audience === 'defaulters'} onClick={() => pick('defaulters')}>
+              Guardians who owe fees
+            </Chip>
+          </Group>
+          <Text size="xs" c="dimmed" mt="sm" mb={4}>
+            Levels
+          </Text>
+          <Group gap="xs">
+            {(levels.data ?? []).map((l) => (
+              <Chip key={l.id} selected={audience === 'level' && ids.includes(l.id)} onClick={() => pick('level', l.id)}>
+                {l.name}
+              </Chip>
+            ))}
+          </Group>
+          <Text size="xs" c="dimmed" mt="sm" mb={4}>
+            Classes
+          </Text>
+          <Group gap="xs">
+            {(classes.data ?? []).map((c) => (
+              <Chip key={c.id} selected={audience === 'class' && ids.includes(c.id)} onClick={() => pick('class', c.id)}>
+                {c.name}
+              </Chip>
+            ))}
+          </Group>
+        </div>
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
-          <Select label="Type of message" data={Object.entries(KINDS).filter(([k]) => k !== 'emergency' || can('messages:emergency')).map(([value, label]) => ({ value, label }))} value={kind} onChange={(v) => { setKind((v ?? 'announcement') as typeof kind); preview.reset(); }} allowDeselect={false} />
           <Select
-            label="Send to parents of"
-            data={[{ value: 'class', label: 'Some classes' }, { value: 'level', label: 'Some levels' }, { value: 'school', label: 'Whole school' }, { value: 'defaulters', label: 'Students who owe fees' }]}
-            value={audience}
-            onChange={(v) => { setAudience((v ?? 'class') as typeof audience); setIds([]); preview.reset(); }}
+            label="Type of message"
+            data={Object.entries(KINDS)
+              .filter(([k]) => k !== 'emergency' || can('messages:emergency'))
+              .map(([value, label]) => ({ value, label }))}
+            value={kind}
+            onChange={(v) => setKind((v ?? 'announcement') as typeof kind)}
             allowDeselect={false}
           />
-          {(audience === 'class' || audience === 'level') && (
-            <MultiSelect label={audience === 'class' ? 'Classes' : 'Levels'} data={audience === 'class' ? classOptions(classes.data) : (levels.data ?? []).map((l) => ({ value: l.id, label: l.name }))} value={ids} onChange={(v) => { setIds(v); preview.reset(); }} />
-          )}
-          <Select label="Start from a template (optional)" data={(templates.data ?? []).map((t) => ({ value: t.id, label: t.name }))} onChange={(id) => { const t = templates.data?.find((x) => x.id === id); if (t) { setBody(t.body); setKind(t.kind); preview.reset(); } }} clearable />
+          <Select
+            label="Start from a template (optional)"
+            data={(templates.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
+            onChange={(id) => {
+              const t = templates.data?.find((x) => x.id === id);
+              if (t) {
+                setBody(t.body);
+                if (kind !== 'emergency') setKind(t.kind);
+              }
+            }}
+            clearable
+          />
         </SimpleGrid>
-        <Textarea mt="sm" label="Message" description="Placeholders like {guardian_name}, {student_name}, {balance} are filled in for each parent." value={body} onChange={(e) => { setBody(e.currentTarget.value); preview.reset(); }} autosize minRows={3} maxLength={640} />
-        <Text size="xs" c="dimmed" ta="right">
-          {body.length}/640 characters
+        <div>
+          <Textarea label="Message" description="Placeholders like {guardian_name}, {student_name}, {balance} are filled in for each guardian." value={body} onChange={(e) => setBody(e.currentTarget.value)} autosize minRows={3} maxLength={640} />
+          <Text size="xs" c="dimmed" ta="right">
+            {body.length}/640 characters
+          </Text>
+        </div>
+        <Text size="sm" c="dimmed" aria-live="polite">
+          {!ready ? 'Choose who to send to and write the message.' : preview.isFetching && !p ? 'Counting guardians…' : p ? `This will send an SMS to ${p.recipientCount} guardians.` : ''}
         </Text>
-        <Group mt="sm">
-          <Button variant="light" disabled={!ready} loading={preview.isPending} onClick={() => preview.mutate()}>
-            Preview cost and recipients
-          </Button>
-        </Group>
         <ProblemAlert error={preview.error ?? send.error} />
-      </Card>
-      {preview.data && (
-        <Card withBorder>
-          <Group gap="xl" mb="sm" wrap="wrap">
-            <Text>
-              <b>{preview.data.recipientCount}</b> parents
+        <Button size="md" w="fit-content" color={kind === 'emergency' ? 'red' : undefined} disabled={!ready || !p || p.recipientCount === 0} onClick={() => setReviewing(true)}>
+          Review and send
+        </Button>
+      </Stack>
+      <Modal opened={reviewing && Boolean(p)} onClose={() => setReviewing(false)} title={kind === 'emergency' ? 'Send emergency message now?' : 'Review and send'} size="lg">
+        {p && (
+          <Stack>
+            <Group gap="xl" wrap="wrap">
+              <Text>
+                <b>{p.recipientCount}</b> guardians
+              </Text>
+              <Text>
+                <b>{p.segmentsPerMessage}</b> SMS each ({p.encoding})
+              </Text>
+              <Text>
+                About <b><Money value={p.estimatedCostPesewas} /></b>
+              </Text>
+            </Group>
+            {p.encoding === 'Unicode' && <Message kind="warning">Special characters make each SMS shorter (70 characters) and more expensive.</Message>}
+            {p.needsApproval && <Message kind="warning">More than 50 recipients: the administrator must approve before it is sent.</Message>}
+            <Text size="sm" fw={600}>
+              Example:
             </Text>
-            <Text>
-              <b>{preview.data.segmentsPerMessage}</b> SMS each ({preview.data.encoding})
-            </Text>
-            <Text>
-              About <b><Money value={preview.data.estimatedCostPesewas} /></b>
-            </Text>
-          </Group>
-          {preview.data.encoding === 'Unicode' && <Alert color="yellow" mb="sm">Special characters make each SMS shorter (70 characters) and more expensive.</Alert>}
-          {preview.data.needsApproval && <Alert color="yellow" mb="sm">More than 50 recipients: the administrator must approve before it is sent.</Alert>}
-          <Text size="sm" fw={600}>Example:</Text>
-          {preview.data.samples.slice(0, 2).map((s, i) => (
-            <Text key={i} size="sm" p="xs" bg="gray.0" mb={4} style={{ borderRadius: 6 }}>
-              {s}
-            </Text>
-          ))}
-          <Button
-            mt="sm"
-            color={kind === 'emergency' ? 'red' : undefined}
-            loading={send.isPending}
-            disabled={preview.data.recipientCount === 0}
-            onClick={() =>
-              modals.openConfirmModal({
-                title: `Send to ${preview.data!.recipientCount} parents?`,
-                children: <Text size="sm">Messages cannot be called back once sent.</Text>,
-                labels: { confirm: preview.data!.needsApproval ? 'Send for approval' : 'Send', cancel: 'Cancel' },
-                onConfirm: () => send.mutate(),
-              })
-            }
-          >
-            {preview.data.needsApproval ? 'Send for approval' : 'Send'}
-          </Button>
-        </Card>
-      )}
-    </Stack>
+            {p.samples.slice(0, 2).map((s, i) => (
+              <Text key={i} size="sm" p="xs" bg="var(--k-paper)" style={{ borderRadius: 6 }}>
+                {s}
+              </Text>
+            ))}
+            <Text size="sm">Messages cannot be called back once sent.</Text>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setReviewing(false)}>
+                Back
+              </Button>
+              <Button color={kind === 'emergency' ? 'red' : undefined} loading={send.isPending} onClick={() => send.mutate()}>
+                {p.needsApproval ? 'Send for approval' : 'Send'}
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+    </Section>
   );
 }
 
@@ -237,9 +307,11 @@ function Log() {
 
 export default function MessagesPage() {
   const { can } = useAuth();
+  const [params] = useSearchParams();
+  const emergency = params.get('kind') === 'emergency';
   return (
     <>
-      <PageHeader title="Messages to parents" subtitle="SMS go out from the school's account. Non-emergency messages wait until 07:00 if sent at night." />
+      <PageHeader title={emergency ? 'Bulk emergency message' : 'Bulk message'} subtitle="SMS go out from the school's account. Non-emergency messages wait until 07:00 if sent at night." />
       <Tabs defaultValue={can('messages:send') ? 'compose' : 'log'}>
         <Tabs.List mb="md">
           {can('messages:send') && <Tabs.Tab value="compose">New message</Tabs.Tab>}
