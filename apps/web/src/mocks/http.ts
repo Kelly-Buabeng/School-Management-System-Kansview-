@@ -1,3 +1,4 @@
+import { randomHex } from '../lib/random';
 /**
  * Mock server plumbing: session, permission checks, CSRF, idempotency, problem+json, network flake simulation.
  */
@@ -35,7 +36,7 @@ export function setSession(s: Session | null) {
   }
 }
 export function newCsrf() {
-  return `csrf-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  return `csrf-${randomHex(16)}${Date.now().toString(36)}`;
 }
 
 export function currentUser(): MUser | null {
