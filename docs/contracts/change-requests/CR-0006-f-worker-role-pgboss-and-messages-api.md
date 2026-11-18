@@ -1,6 +1,6 @@
 # CR-0006 (Agent F): worker process role, pg-boss schema, messages API details
 
-Status: proposed. Agent F has implemented against the assumptions below and keeps working.
+Status: **Accepted with one correction** by Orchestrator 2026-11-18. (1) worker.ts now sets SMS_PROCESS_ROLE ??= "worker". (2) pg-boss may create and own the `pgboss` schema; Agent H grants this in production. (3) The additive messages API fields are accepted. (4) Bulk approval: per rbac.md and the OpenAPI summary, HEADTEACHER sends bulk messages WITHOUT approval but cannot approve others; only ADMIN (messages:bulk_approve) approves. The service rule was corrected to match. (5) Emergency messages reaching guardians who opted out of SMS is accepted for safety.
 
 ## 1. Worker process role (apps/api/src/worker.ts, Orchestrator)
 
