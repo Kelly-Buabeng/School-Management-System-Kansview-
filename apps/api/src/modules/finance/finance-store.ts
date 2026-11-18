@@ -31,7 +31,8 @@ export interface AllocationInsert {
   invoiceLineId: string | null;
   amountPesewas: Pesewas;
   allocationBatchId: string;
-  isReversal: boolean;
+  /** Informational: the DB requires is_reversal = (amount < 0), so the flag is derived from the sign. */
+  isReversal?: boolean;
   createdBy: string;
 }
 
@@ -39,7 +40,7 @@ export interface DetailedLine extends LineState {
   invoiceId: string;
   invoiceNo: string;
   termId: string;
-  feeItemId: string;
+  feeItemId: string | null;
   feeItemName: string;
   description: string;
   amountPesewas: Pesewas;
@@ -63,7 +64,7 @@ export class FinanceStore {
   }
 
   async newBatchId(tx: DbOrTx): Promise<string> {
-    const r = await sql<{ id: string }>`select uuidv7() as id`.execute(tx);
+    const r = await sql<{ id: string }>`select app.uuid_v7() as id`.execute(tx);
     return r.rows[0]!.id;
   }
 
@@ -102,7 +103,7 @@ export class FinanceStore {
         invoice_line_id: r.invoiceLineId,
         amount_pesewas: r.amountPesewas,
         allocation_batch_id: r.allocationBatchId,
-        is_reversal: r.isReversal,
+        is_reversal: r.amountPesewas < 0,
         created_by: r.createdBy,
       })))
       .execute();
@@ -122,11 +123,11 @@ export class FinanceStore {
     const lines = await db
       .selectFrom('invoice_lines as il')
       .innerJoin('invoices as i', 'i.id', 'il.invoice_id')
-      .innerJoin('fee_items as fi', 'fi.id', 'il.fee_item_id')
+      .leftJoin('fee_items as fi', 'fi.id', 'il.fee_item_id')
       .innerJoin('terms as t', 't.id', 'i.term_id')
       .select([
         'il.id', 'il.invoice_id', 'il.fee_item_id', 'il.description', 'il.amount_pesewas',
-        'i.invoice_no', 'i.term_id', 't.start_date', 'fi.name as fee_item_name', 'fi.allocation_priority',
+        'i.invoice_no', 'i.term_id', 't.start_date', 'fi.name as fee_item_name', 'il.allocation_priority',
       ])
       .where('i.student_id', '=', studentId)
       .where('i.status', '=', 'issued')
@@ -156,7 +157,7 @@ export class FinanceStore {
     const termIds = [...new Set(lines.map((l) => l.term_id))];
     for (const termId of termIds) {
       const tl = lines.filter((l) => l.term_id === termId).map((l, i) => ({
-        invoiceLineId: l.id, feeItemId: l.fee_item_id, amountPesewas: Number(l.amount_pesewas), allocationPriority: l.allocation_priority, sequence: i,
+        invoiceLineId: l.id, feeItemId: l.fee_item_id ?? `line:${l.id}`, amountPesewas: Number(l.amount_pesewas), allocationPriority: l.allocation_priority, sequence: i,
       }));
       const adj = adjustments
         .filter((a) => a.term_id === termId && isCreditAdjustment(a.type as AdjustmentType))
@@ -180,7 +181,7 @@ export class FinanceStore {
         allocationPriority: l.allocation_priority,
         sequence: `${l.invoice_no}|${String(i).padStart(4, '0')}`,
         feeItemId: l.fee_item_id,
-        feeItemName: l.fee_item_name,
+        feeItemName: l.fee_item_name ?? l.description,
         description: l.description,
         amountPesewas: amount,
         paidPesewas,
