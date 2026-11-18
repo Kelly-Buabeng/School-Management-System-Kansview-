@@ -1,3 +1,11 @@
+// Self-hosted fonts (latin + latin-ext only; the LAN is often offline, so no font CDN).
+import '@fontsource/ibm-plex-sans/latin-400.css';
+import '@fontsource/ibm-plex-sans/latin-ext-400.css';
+import '@fontsource/ibm-plex-sans/latin-500.css';
+import '@fontsource/ibm-plex-sans/latin-ext-500.css';
+import '@fontsource/ibm-plex-sans/latin-600.css';
+import '@fontsource/source-serif-4/latin-600.css';
+import '@fontsource/source-serif-4/latin-ext-600.css';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './app/global.css';
