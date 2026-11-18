@@ -8,7 +8,7 @@ const CTX: ValidationContext = {
   academicYearStart: '2026-09-08',
   classes: FIXTURE_CLASSES.map((d, i) => {
     const [level, stream] = d.split(' ');
-    return { id: `c${i}`, levelCode: level!, stream: stream ?? null, displayName: d, capacity: 60, activeCount: 0 };
+    return { id: `c${i}`, levelCode: level!, stream: stream ?? null, displayName: d, capacity: 200, activeCount: 0 };
   }),
   terms: [{ id: 't1', yearName: '2026/2027', number: 1 }],
 };
