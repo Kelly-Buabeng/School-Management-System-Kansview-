@@ -11,7 +11,7 @@ import {
   parsePhone, parseRelationship, parseTermLabel, parseYesNo, sameLevelCode, splitFullName, type Result,
 } from './normalise';
 
-export type Severity = 'error' | 'warning';
+export type Severity = 'error' | 'warning' | 'info';
 export interface RowMessage {
   severity: Severity;
   code: string;

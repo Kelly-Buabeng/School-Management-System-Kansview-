@@ -321,3 +321,22 @@ export function splitFullName(v: RawCell | undefined): { firstName: string; midd
   if (parts.length < 2) return null;
   return { firstName: parts[0]!, middleNames: parts.slice(1, -1).join(' ') || null, lastName: parts[parts.length - 1]!, guessed: true };
 }
+
+function trigrams(s: string): Set<string> {
+  const out = new Set<string>();
+  for (const word of s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)) {
+    const w = `  ${word} `;
+    for (let i = 0; i + 3 <= w.length; i += 1) out.add(w.slice(i, i + 3));
+  }
+  return out;
+}
+
+/** Trigram similarity in the same spirit as PostgreSQL pg_trgm similarity() (0..1). */
+export function nameSimilarity(a: string, b: string): number {
+  const ta = trigrams(a);
+  const tb = trigrams(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let common = 0;
+  for (const t of ta) if (tb.has(t)) common += 1;
+  return common / (ta.size + tb.size - common);
+}
