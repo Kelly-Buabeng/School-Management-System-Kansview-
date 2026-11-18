@@ -14,10 +14,9 @@ const el = (C: Lazy) => (
 const LoginPage = page(() => import('@/auth/LoginPages').then((m) => ({ default: m.LoginPage })));
 const MfaPage = page(() => import('@/auth/LoginPages').then((m) => ({ default: m.MfaPage })));
 const ChangePasswordPage = page(() => import('@/auth/LoginPages').then((m) => ({ default: m.ChangePasswordPage })));
-const ComingSoon = page(() => import('@/features/misc/ComingSoon'));
 
 export const pages = {
-  dashboard: ComingSoon,
+  dashboard: page(() => import('@/features/dashboard/DashboardPage')),
   students: page(() => import('@/features/students/StudentListPage')),
   studentProfile: page(() => import('@/features/students/StudentProfilePage')),
   admission: page(() => import('@/features/students/AdmissionWizard')),
@@ -38,12 +37,12 @@ export const pages = {
   attendance: page(() => import('@/features/academics/AttendancePage')),
   scores: page(() => import('@/features/academics/ScoresPage')),
   reportCards: page(() => import('@/features/academics/ReportCardsPage')),
-  messages: ComingSoon,
-  imports: ComingSoon,
-  staff: ComingSoon,
-  settings: ComingSoon,
-  users: ComingSoon,
-  audit: ComingSoon,
+  messages: page(() => import('@/features/messages/MessagesPage')),
+  imports: page(() => import('@/features/imports/ImportsPage')),
+  staff: page(() => import('@/features/admin/AdminPages').then((m) => ({ default: m.StaffPage }))),
+  settings: page(() => import('@/features/admin/AdminPages').then((m) => ({ default: m.SettingsPage }))),
+  users: page(() => import('@/features/admin/AdminPages').then((m) => ({ default: m.UsersPage }))),
+  audit: page(() => import('@/features/admin/AdminPages').then((m) => ({ default: m.AuditPage }))),
 };
 
 export const routes: RouteObject[] = [
