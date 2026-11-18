@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Put, Query, Res, UploadedFile, UseInterceptors, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Put, Query, Res, UploadedFile, UseInterceptors, Patch, StreamableFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { parseWith } from '../../common/validation';
@@ -24,11 +24,11 @@ import { LedgerServiceImpl } from './ledger.service';
 import { CashUpsService } from './cash-ups.service';
 import { assertStudentInScope } from './support';
 
-function sendPdf(res: Response, buf: Buffer, filename: string): Buffer {
+function sendPdf(res: Response, buf: Buffer, filename: string): StreamableFile {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
   res.setHeader('Cache-Control', 'no-store');
-  return buf;
+  return new StreamableFile(buf);
 }
 
 @Controller()

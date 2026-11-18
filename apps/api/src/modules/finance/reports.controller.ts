@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Query, Res } from '@nestjs/common';
+import { Controller, Get, Inject, Query, Res, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
 import { parseWith } from '../../common/validation';
 import { CurrentUser, RequirePermission } from '../../security/decorators';
@@ -19,11 +19,11 @@ export class ReportsController {
     if (format === 'xlsx') {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${name}-${stamp}.xlsx"`);
-      return this.reports.toXlsx(r);
+      return new StreamableFile(Buffer.from(await this.reports.toXlsx(r)));
     }
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${name}-${stamp}.pdf"`);
-    return this.reports.toPdf(r);
+    return new StreamableFile(await this.reports.toPdf(r));
   }
 
   @Get('collections') @RequirePermission('finance_reports:read')
