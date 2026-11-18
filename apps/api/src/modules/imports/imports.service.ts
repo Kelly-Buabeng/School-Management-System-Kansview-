@@ -14,6 +14,7 @@ import { postOpeningBalance, writeStaff, writeStudent } from './import-writers';
 import { missingRequiredColumns, type NormalisedBalance, type NormalisedStaff, type NormalisedStudent, type RowMessage, type RowStatus } from './row-validation';
 import { buildTemplate } from './template-builder';
 import { buildErrorReport } from './error-report';
+import { FinanceStore } from '../finance/finance-store';
 
 /** Rows committed per transaction (schema.md §8). */
 export const COMMIT_BATCH_SIZE = 200;
@@ -101,13 +102,17 @@ const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 @Injectable()
 export class ImportsService {
   private readonly logger = new Logger('ImportsService');
+  /** Agent C's ledger helpers. FinanceModule does not export FinanceStore (CR-0007 asks for it), so an instance is made here on the shared Kysely pool. */
+  private readonly finance: FinanceStore;
 
   constructor(
     @Inject(KYSELY) private readonly db: Db,
     @Inject(IMPORT_TARGET) private readonly importTarget: ImportTarget,
     @Inject(UPLOAD_PIPELINE) private readonly uploads: UploadPipeline,
     @Inject(AUDIT_SERVICE) private readonly audit: AuditService,
-  ) {}
+  ) {
+    this.finance = new FinanceStore(db);
+  }
 
   // ---------------------------------------------------------------- templates
 
@@ -508,7 +513,7 @@ export class ImportsService {
           set = { target_staff_id: link ?? (await writeStaff(tx, n as NormalisedStaff, user.id)) };
         } else {
           const b = n as NormalisedBalance;
-          await postOpeningBalance(tx, b, user.id);
+          await postOpeningBalance(tx, this.finance, b, user.id);
           set = { target_student_id: b.studentId! };
         }
         await tx.updateTable('import.rows').set({ ...set, committed_at: new Date(), updated_at: new Date() }).where('id', '=', r.id).execute();

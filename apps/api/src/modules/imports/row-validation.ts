@@ -463,7 +463,7 @@ export function crossRowChecks(type: ImportType, outcomes: RowOutcome[], ctx: Va
       if (!s?.classId) continue;
       const cls = ctx.classes.find((c) => c.id === s.classId);
       if (cls?.capacity && cls.activeCount + (perClass.get(cls.id) ?? 0) > cls.capacity) {
-        o.messages.push({ severity: 'warning', code: 'CLASS_OVER_CAPACITY', field: 'class', message: `${cls.displayName} will have ${cls.activeCount + perClass.get(cls.id)!} students, more than its capacity of ${cls.capacity}. The students will still be imported; raise the capacity under Classes if this is correct.` });
+        o.messages.push({ severity: 'error', code: 'CLASS_OVER_CAPACITY', field: 'class', message: `${cls.displayName} would have ${cls.activeCount + perClass.get(cls.id)!} students, more than its capacity of ${cls.capacity}. Raise the capacity under Classes (or move some children to another stream), then click "Check file" again.` });
       }
     }
   } else if (type === 'staff') {

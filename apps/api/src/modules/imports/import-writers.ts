@@ -2,14 +2,15 @@
  * Writers used by the commit, one per import type. Each runs inside the caller's batch transaction.
  *
  * - Students + guardians go through ImportTarget (Agent B), the same rules as manual admission.
- * - Staff and opening balances have no cross-agent interface yet, so they are written here.
- *   TEMPORARY until CR-0004 is decided (ImportTarget.upsertStaff and LedgerService.postOpeningBalance);
- *   both follow docs/contracts/schema.md exactly and only INSERT.
+ * - Opening balances go through Agent C's FinanceStore (lock + append-only ledger insert).
+ * - Staff have no cross-agent writer yet, so they are inserted here. TEMPORARY until CR-0007 is decided
+ *   (ImportTarget.upsertStaff); follows docs/contracts/schema.md and only INSERTs.
  */
 import { sql } from 'kysely';
 import { AppError } from '../../common/app-error';
 import type { Tx } from '../../common/db/database.module';
 import type { ImportStudentRow, ImportTarget } from '../../common/contracts';
+import type { FinanceStore } from '../finance/finance-store';
 import type { NormalisedBalance, NormalisedStaff, NormalisedStudent } from './row-validation';
 
 export function toImportStudentRow(s: NormalisedStudent, guardianIdsByPhone: Map<string, string>): ImportStudentRow {
@@ -67,7 +68,7 @@ export async function writeStudent(tx: Tx, target: ImportTarget, s: NormalisedSt
   return { studentId: res.studentId, guardianIds: res.guardianIds };
 }
 
-/** TEMPORARY (CR-0004): inserts a staff record + emergency contact. Staff ID generated as STF-0001… when the file has none. */
+/** TEMPORARY (CR-0007): inserts a staff record + emergency contact. Staff ID generated as STF-0001… when the file has none. */
 export async function writeStaff(tx: Tx, s: NormalisedStaff, actorId: string): Promise<string> {
   let code = s.staffCode;
   if (!code) {
@@ -105,22 +106,17 @@ export async function writeStaff(tx: Tx, s: NormalisedStaff, actorId: string): P
 }
 
 /**
- * TEMPORARY (CR-0004, to move behind Agent C's LedgerService): posts one `opening_balance` ledger entry.
- * Ledger rules (schema.md §6): append-only INSERT, signed pesewas (+ owed by family, − credit), never zero,
- * at most one opening balance per student (checked under a per-student advisory lock so two commits cannot race).
- * Returns null when nothing was posted (zero amount).
+ * Posts one `opening_balance` ledger entry through Agent C's FinanceStore (same per-student lock and append-only
+ * insert that payments and adjustments use). Signed pesewas: + owed by the family, − credit. Zero posts nothing.
+ * At most one opening balance per student: checked under the student's finance lock, so two commits cannot race.
  */
-export async function postOpeningBalance(tx: Tx, b: NormalisedBalance, actorId: string): Promise<{ entryId: string } | null> {
+export async function postOpeningBalance(tx: Tx, finance: FinanceStore, b: NormalisedBalance, actorId: string): Promise<{ entryId: string } | null> {
   if (!b.studentId || !b.termId) throw new Error('balance row not resolved');
   if (b.amountPesewas === 0) return null;
-  await sql`SELECT pg_advisory_xact_lock(hashtext('sms.opening_balance'), hashtext(${b.studentId}))`.execute(tx);
+  await finance.lockStudent(tx, b.studentId);
   const existing = await tx.selectFrom('ledger_entries').select('id').where('student_id', '=', b.studentId).where('entry_type', '=', 'opening_balance').executeTakeFirst();
   if (existing) throw new AppError(409, 'IMPORT_INVALID_STATE', 'This student already has an opening balance', 'To change it, record an adjustment in Finance instead.');
   const description = `Opening balance from old records${b.note ? `: ${b.note}` : ''}`.slice(0, 500);
-  const r = await tx
-    .insertInto('ledger_entries')
-    .values({ student_id: b.studentId, term_id: b.termId, entry_type: 'opening_balance', amount_pesewas: b.amountPesewas, description, posted_by: actorId })
-    .returning('id')
-    .executeTakeFirstOrThrow();
-  return { entryId: r.id };
+  const [entry] = await finance.postLedger(tx, [{ studentId: b.studentId, termId: b.termId, entryType: 'opening_balance', amountPesewas: b.amountPesewas, description, postedBy: actorId }]);
+  return { entryId: entry!.id };
 }

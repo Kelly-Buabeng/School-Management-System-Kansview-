@@ -113,7 +113,7 @@ describe('row validation', () => {
     const ctx = { ...CTX, classes: CTX.classes.map((c) => ({ ...c, capacity: 1, activeCount: 1 })) };
     const parsed = await readImportFile(csvFrom([STUDENT_HEADERS, ...generateStudentRows(1)]), 'students_guardians');
     const out = validateRows('students_guardians', parsed.rows, parsed.mapping, ctx);
-    expect(out[0]!.messages).toContainEqual(expect.objectContaining({ code: 'CLASS_OVER_CAPACITY', severity: 'warning' }));
+    expect(out[0]!.messages).toContainEqual(expect.objectContaining({ code: 'CLASS_OVER_CAPACITY', severity: 'error' }));
   });
 
   it('staff rows', async () => {

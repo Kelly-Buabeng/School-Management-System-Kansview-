@@ -49,11 +49,16 @@ export async function dryRun(db: Kysely<DB>, type: ImportType, rows: RawRow[], m
     );
     const guardians = await findGuardiansByPhone(db, students.flatMap(({ s }) => s.guardians.map((g) => g.phonePrimary)));
     for (const { o, s } of students) {
-      const cands = existing.get(o.rowNumber);
-      if (cands?.length) {
-        dupes.set(o.rowNumber, cands);
-        const list = cands.map((c) => `${c.name} (${c.studentCode}, born ${c.dateOfBirth}): ${c.reason.toLowerCase()}`).join('; ');
-        o.messages.push({ severity: 'warning', code: 'POSSIBLE_DUPLICATE', message: `This child may already be in the system: ${list}. Choose "link to existing", "create new" or "skip".` });
+      const all = existing.get(o.rowNumber) ?? [];
+      // Same rule as admission (Agent B): similar name + same date of birth + a shared guardian phone, or the same Old Student ID.
+      const strong = all.filter((c) => c.sharedGuardianPhone || c.reason.startsWith('Same Old Student ID'));
+      const weak = all.filter((c) => !strong.includes(c));
+      const describe = (list: DuplicateCandidate[]) => list.map((c) => `${c.name} (${c.studentCode}, born ${c.dateOfBirth}): ${c.reason.toLowerCase()}`).join('; ');
+      if (strong.length) {
+        dupes.set(o.rowNumber, strong);
+        o.messages.push({ severity: 'warning', code: 'POSSIBLE_DUPLICATE', message: `This child may already be in the system: ${describe(strong)}. Choose "link to existing", "create new" or "skip".` });
+      } else if (weak.length) {
+        o.messages.push({ severity: 'warning', code: 'SIMILAR_STUDENT', message: `A child with a similar name and the same date of birth is already in the system: ${describe(weak)}. The parents are different, so this row will be imported as a new child. Skip the row if it is the same child.` });
       }
       s.guardians.forEach((g, i) => {
         const hit = guardians.get(g.phonePrimary);
