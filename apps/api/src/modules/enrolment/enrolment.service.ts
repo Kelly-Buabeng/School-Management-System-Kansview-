@@ -1,6 +1,5 @@
 // Owner: Agent B. Enrolment history (never overwritten), class changes, class rolls and roll numbers.
 import { Inject, Injectable } from '@nestjs/common';
-import { sql } from 'kysely';
 import { z } from 'zod';
 import { ErrorCodes, todayInAccra } from '@sms/shared';
 import { AppError } from '../../common/app-error';
@@ -107,4 +106,3 @@ export class EnrolmentService {
   }
 }
 
-export { sql };
