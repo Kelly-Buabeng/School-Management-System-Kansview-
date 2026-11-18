@@ -12,12 +12,45 @@ export interface TestDb {
   drop(): Promise<void>;
 }
 
+const RETRYABLE = new Set([
+  '55006', // object_in_use: "source database template… is being accessed by other users"
+  '23505', // unique_violation on pg_database (name collision)
+  '42P04', // duplicate_database
+  '40001', // serialization_failure
+  '53300', // too_many_connections (other agents testing on the same server)
+  '57P03', // cannot_connect_now
+]);
+
+/**
+ * Creates an empty database. Safe when many test processes share one server:
+ * - names include the process id and 8 random bytes, so they never collide in practice;
+ * - TEMPLATE template0 (nobody connects to it), so other sessions on template1 do not block the copy;
+ * - retries with jittered backoff on the transient errors above.
+ */
+async function createEmptyDatabase(prefix: string): Promise<string> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const name = `${prefix}_${process.pid}_${randomBytes(8).toString('hex')}`;
+    const admin = new pg.Client({ connectionString: ADMIN_URL });
+    admin.on('error', () => {});
+    try {
+      await admin.connect();
+      await admin.query(`CREATE DATABASE ${name} TEMPLATE template0 ENCODING 'UTF8'`);
+      return name;
+    } catch (err) {
+      lastErr = err;
+      const code = (err as { code?: string }).code;
+      if (!code || !RETRYABLE.has(code)) throw err;
+      await new Promise((r) => setTimeout(r, 100 * 2 ** attempt + Math.random() * 200));
+    } finally {
+      await admin.end().catch(() => {});
+    }
+  }
+  throw lastErr;
+}
+
 export async function createDb(prefix = 'a_t'): Promise<TestDb> {
-  const name = `${prefix}_${randomBytes(5).toString('hex')}`;
-  const admin = new pg.Client({ connectionString: ADMIN_URL });
-  await admin.connect();
-  await admin.query(`CREATE DATABASE ${name}`);
-  await admin.end();
+  const name = await createEmptyDatabase(prefix);
   const url = ADMIN_URL.replace(/\/[^/]*$/, `/${name}`);
   await migrate(url, { log: () => {} });
   const opened: pg.Client[] = [];
