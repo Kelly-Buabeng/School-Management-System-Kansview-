@@ -1,7 +1,7 @@
 # CR-0007: import writers for staff, opening balances, and a duplicate override for ImportTarget
 
 - Raised by: Agent G (data import), 2026-11-18
-- Status: **Proposed**
+- Status: **Accepted** by Orchestrator 2026-11-18. Item 4 (additive imports API fields) is accepted as documented. Items 1–3 are accepted in principle; the current workarounds (create-new duplicates refused by admission, ImportsService using its own FinanceStore, staff inserted directly) are safe and stay for now. The proper interface changes are listed in docs/plan/follow-ups.md for a clean-up pass after the queue.
 - Affected: Agent B (`ImportTarget`, staff module), Agent C (finance module), Orchestrator (`common/contracts/import-target.ts`, OpenAPI)
 
 ## 1. `ImportStudentRow`: let the import confirm "create new" for a possible duplicate
