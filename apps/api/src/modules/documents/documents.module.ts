@@ -1,17 +1,16 @@
 // Owner: Agent F. See docs/plan/phase1-agent-tasks.md. Do not edit from another agent; raise a change request.
-import { Global, Injectable, Module } from '@nestjs/common';
-import { PDF_SERVICE, type PdfService } from '../../common/contracts';
-import { AppError } from '../../common/app-error';
-
-// SCAFFOLD STUB(S): replace with the real implementation and update the binding below.
-@Injectable()
-export class StubPdfService implements PdfService {
-  async render(): Promise<Buffer> { throw new AppError(501, 'NOT_IMPLEMENTED', 'PDF generation not implemented yet'); }
-}
+import { Global, Module } from '@nestjs/common';
+import { PDF_SERVICE } from '../../common/contracts';
+import { PdfmakePdfService } from './pdf.service';
+import { DbSchoolHeaderSource, SCHOOL_HEADER_SOURCE } from './school-header.source';
 
 @Global()
 @Module({
-  providers: [{ provide: PDF_SERVICE, useClass: StubPdfService }],
-  exports: [PDF_SERVICE],
+  providers: [
+    { provide: SCHOOL_HEADER_SOURCE, useClass: DbSchoolHeaderSource },
+    PdfmakePdfService,
+    { provide: PDF_SERVICE, useExisting: PdfmakePdfService },
+  ],
+  exports: [PDF_SERVICE, PdfmakePdfService, SCHOOL_HEADER_SOURCE],
 })
 export class DocumentsModule {}

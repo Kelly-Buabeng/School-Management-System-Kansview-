@@ -13,3 +13,4 @@ test-results/
 
 # Local agent worktrees and tool state (never commit)
 .claude/
+apps/api/var/
