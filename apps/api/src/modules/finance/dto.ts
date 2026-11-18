@@ -19,7 +19,7 @@ export function parseId(value: string, what = 'record'): string {
 export const FEE_CATEGORIES = ['tuition', 'pta', 'feeding', 'transport', 'uniform', 'books', 'exams', 'extracurricular', 'other'] as const;
 
 export const CreateFeeItemBody = z.strictObject({
-  code: z.string().trim().min(1).max(30).regex(/^[A-Za-z0-9_-]+$/, 'Letters, numbers, - and _ only'),
+  code: z.string().trim().regex(/^[A-Za-z0-9_]{2,20}$/, '2 to 20 letters, numbers or _').transform((v) => v.toUpperCase()),
   name: text(100),
   category: z.enum(FEE_CATEGORIES),
   isOptional: z.boolean().default(false),

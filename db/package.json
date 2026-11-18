@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "migrate": "node tools/migrate.mjs",
+    "seed": "node seeds/seed.mjs",
     "test": "vitest run",
     "typecheck": "echo 'db: plain SQL/JS, no typecheck'",
     "lint": "echo 'db: no lint'"
   },
-  "dependencies": { "pg": "^8.16.0" },
-  "devDependencies": { "vitest": "^3.2.0", "@types/pg": "^8.15.0", "@types/node": "^22.0.0" }
+  "dependencies": { "pg": "^8.16.0", "argon2": "^0.43.0" },
+  "devDependencies": { "vitest": "^3.2.0", "kysely": "^0.28.0", "@types/pg": "^8.15.0", "@types/node": "^22.0.0" }
 }

@@ -180,6 +180,55 @@ describe('payment reversals (CR-0003)', () => {
   });
 });
 
+describe('payment evidence attachment (CR-0005)', () => {
+  const newFile = async () => (await one<{ id: string }>(c,
+    `INSERT INTO app.files (storage_key, original_name, mime_type, size_bytes, sha256, scan_status) VALUES ($1, 'momo.png', 'image/png', 10, 'x', 'clean') RETURNING id`,
+    [randomUUID()])).id;
+  const newPayment = async (receivedAt: string, cashUpId: string | null) => (await one<{ id: string }>(c,
+    `INSERT INTO app.payments (receipt_no, student_id, payer_name, amount_pesewas, method, recorded_by, idempotency_key, received_at, cash_up_id)
+     VALUES (app.next_doc_no('receipt'), $1, 'Akosua Mensah', 1000, 'cash', $2, $3, $4, $5) RETURNING id`,
+    [f.studentId, f.userId, randomUUID(), receivedAt, cashUpId])).id;
+
+  it('a direct UPDATE of attachment_file_id is refused (guard and column privilege)', async () => {
+    const file = await newFile();
+    await expect(attempt(() => c.query('UPDATE app.payments SET attachment_file_id = $1 WHERE id = $2', [file, f.paymentId]))).rejects.toThrow(/only confirmed → reversed/);
+    await expect(attempt(() => c.query('UPDATE app.payments SET attachment_file_id = $1 WHERE id = $2', [file, f.paymentId]), 'sms_app')).rejects.toThrow(/permission denied/);
+    await expect(attempt(async () => {
+      await c.query(`SELECT set_config('app.attach_payment_evidence', 'on', true)`);
+      await c.query('UPDATE app.payments SET attachment_file_id = $1 WHERE id = $2', [file, f.paymentId]);
+    }, 'sms_app')).rejects.toThrow(/permission denied/);
+  });
+
+  it('attaches once through the function on the day received, then refuses a second attachment', async () => {
+    const file = await newFile();
+    await attempt(async () => {
+      await c.query('SELECT app.attach_payment_evidence($1, $2, $3)', [f.paymentId, file, f.userId]);
+      const p = await one<{ attachment_file_id: string; amount_pesewas: number; version: number }>(c, 'SELECT attachment_file_id, amount_pesewas, version FROM app.payments WHERE id = $1', [f.paymentId]);
+      expect(p.attachment_file_id).toBe(file);
+      expect(p.version).toBe(2);
+      await c.query('SAVEPOINT s1');
+      await expect(c.query('SELECT app.attach_payment_evidence($1, $2)', [f.paymentId, file])).rejects.toThrow(/already has evidence/);
+      await c.query('ROLLBACK TO SAVEPOINT s1');
+      // the flag is reset: no further edits
+      await expect(c.query('UPDATE app.payments SET notes = $1 WHERE id = $2', ['x', f.paymentId])).rejects.toThrow(/permission denied/);
+    }, 'sms_app');
+  });
+
+  it('only while the cash-up is open, or on the day received when there is no cash-up', async () => {
+    const file = await newFile();
+    const yesterday = await newPayment(new Date(Date.now() - 2 * 86400000).toISOString(), null);
+    await expect(attempt(() => c.query('SELECT app.attach_payment_evidence($1, $2)', [yesterday, file]))).rejects.toThrow(/on the day the payment was received/);
+    await attempt(async () => {
+      const cu = await one<{ id: string }>(c, `INSERT INTO app.cash_ups (business_date, opened_by) VALUES ('2026-01-05', $1) RETURNING id`, [f.userId]);
+      const old = await newPayment('2026-01-05T10:00:00Z', cu.id);
+      await c.query('SELECT app.attach_payment_evidence($1, $2)', [old, file]); // open cash-up: allowed even on a later day
+      const other = await newPayment('2026-01-05T11:00:00Z', cu.id);
+      await c.query(`UPDATE app.cash_ups SET status = 'closed', closed_at = now(), closed_by = $2 WHERE id = $1`, [cu.id, f.userId]);
+      await expect(c.query('SELECT app.attach_payment_evidence($1, $2)', [other, file])).rejects.toThrow(/cash-up is open/);
+    });
+  });
+});
+
 describe('views', () => {
   it('v_sibling_links derives siblings from shared guardians', async () => {
     const b = await insertStudent(c, f.classId, 'Esi', 'Mensah');

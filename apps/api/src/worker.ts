@@ -6,6 +6,8 @@ import { AppModule } from './app.module';
 import { logger } from './common/logger';
 
 async function main(): Promise<void> {
+  // Job handlers only start in the worker role (CR-0006); the API process just enqueues.
+  process.env.SMS_PROCESS_ROLE ??= 'worker';
   const app = await NestFactory.createApplicationContext(AppModule);
   app.enableShutdownHooks();
   logger.info('worker started');
