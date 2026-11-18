@@ -37,14 +37,14 @@ describe('staff, attendance, academics, welfare', () => {
     await ctx.http().get('/api/v1/staff').expect(200);
     await ctx.http().post(`/api/v1/staff/${staffId}/sensitive/reveal`).send({ reason: 'curious' }).expect(403);
     await ctx.http().post('/api/v1/staff').send({ firstName: 'X', lastName: 'Y', staffType: 'teaching' }).expect(403);
-    ctx.as('TEACHER');
+    ctx.as('TEACHER', { staffId });
     await ctx.http().get('/api/v1/staff').expect(403);
     ctx.as('ADMIN');
     await ctx.http().get(`/api/v1/staff/${RANDOM_ID}`).expect(404);
   });
 
   it('attendance: pre-filled register, save, absence SMS once per student per day', async () => {
-    ctx.as('TEACHER');
+    ctx.as('TEACHER', { staffId });
     const date = '2026-11-16';
     const reg = await ctx.http().get(`/api/v1/classes/${school.classes.P1A}/attendance`).query({ date }).expect(200);
     expect(reg.body).toMatchObject({ taken: false });
@@ -78,7 +78,7 @@ describe('staff, attendance, academics, welfare', () => {
     const subj = (await ctx.http().post('/api/v1/subjects').send({ code: 'MATH', name: 'Mathematics' }).expect(201)).body.id;
     const eng = (await ctx.http().post('/api/v1/subjects').send({ code: 'ENG', name: 'English' }).expect(201)).body.id;
     const termId = school.termIds[0]!;
-    ctx.as('TEACHER');
+    ctx.as('TEACHER', { staffId });
     const q = { termId, subjectId: subj };
     await ctx.http().put(`/api/v1/classes/${school.classes.P1A}/scores`).query(q).send({ scores: [{ studentId: s[0], classScore: 31, examScore: 10 }] }).expect(400);
     const saved = await ctx.http().put(`/api/v1/classes/${school.classes.P1A}/scores`).query(q).send({ scores: [
@@ -106,7 +106,7 @@ describe('staff, attendance, academics, welfare', () => {
     const pdf = await ctx.http().get(`/api/v1/report-cards/${byStudent(s[0]!).id}/pdf`);
     expect([200, 501]).toContain(pdf.status);
     await ctx.http().post(`/api/v1/terms/${termId}/scores/lock`).expect(200);
-    ctx.as('TEACHER');
+    ctx.as('TEACHER', { staffId });
     const lockedRes = await ctx.http().put(`/api/v1/classes/${school.classes.P1A}/scores`).query(q).send({ scores: [{ studentId: s[0], classScore: 1 }] }).expect(423);
     expect(lockedRes.body.code).toBe('SCORES_LOCKED');
     ctx.as('BURSAR');
@@ -116,13 +116,13 @@ describe('staff, attendance, academics, welfare', () => {
   });
 
   it('welfare: incidents restricted to ADMIN/HEADTEACHER/author; health visits audited', async () => {
-    ctx.as('TEACHER');
+    ctx.as('TEACHER', { staffId });
     const inc = await ctx.http().post(`/api/v1/students/${s[1]}/incidents`).send({ occurredAt: '2026-11-16T10:00:00Z', category: 'Fighting', severity: 'medium', description: 'Pushed a classmate at break' }).expect(201);
     expect(inc.body.reportedByUserId).toBe(USER_IDS.TEACHER);
     ctx.as('REGISTRAR');
     await ctx.http().post(`/api/v1/students/${s[1]}/incidents`).send({ occurredAt: '2026-11-16T11:00:00Z', category: 'Late', description: 'Came late twice' }).expect(201);
     await ctx.http().get(`/api/v1/students/${s[1]}/incidents`).expect(403);
-    ctx.as('TEACHER');
+    ctx.as('TEACHER', { staffId });
     const own = await ctx.http().get(`/api/v1/students/${s[1]}/incidents`).expect(200);
     expect(own.body).toHaveLength(1);
     await ctx.http().patch(`/api/v1/incidents/${inc.body.id}`).send({ followUp: 'x' }).expect(403);
@@ -130,7 +130,7 @@ describe('staff, attendance, academics, welfare', () => {
     expect((await ctx.http().get(`/api/v1/students/${s[1]}/incidents`).expect(200)).body).toHaveLength(2);
     await ctx.http().patch(`/api/v1/incidents/${inc.body.id}`).send({ followUp: 'Parents met the head' }).expect(200);
     await ctx.http().patch(`/api/v1/incidents/${RANDOM_ID}`).send({ followUp: 'x' }).expect(404);
-    ctx.as('TEACHER');
+    ctx.as('TEACHER', { staffId });
     const hv = await ctx.http().post(`/api/v1/students/${s[0]}/health-visits`).send({ complaint: 'Headache', treatmentGiven: 'Rest', sentHome: false }).expect(201);
     expect(hv.body.complaint).toBeUndefined();
     await ctx.http().get(`/api/v1/students/${s[0]}/health-visits`).expect(403);
