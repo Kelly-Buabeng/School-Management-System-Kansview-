@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:int": "vitest run --project integration",
+    "test:rbac-coverage": "vitest run test/d/rbac-coverage.int-spec.ts src/security/permissions.spec.ts",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

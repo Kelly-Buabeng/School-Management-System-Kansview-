@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { KYSELY, type Db } from '../common/db/database.module';
+import { APP_CONFIG, type AppConfig } from '../common/config';
 import type { AuthUser } from './auth-user';
 import type { AuditEvent, AuditService } from './audit.service';
 import { maskChanges } from './masking';
@@ -17,8 +18,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 @Injectable()
 export class DbAuditService implements AuditService {
   private readonly logger = new Logger('Audit');
+  /**
+   * Test mode only (SMS_NODE_ENV=test): a copy of events written by this process, so older test helpers that read
+   * `events` from the scaffold stub keep working. Undefined in development and production. Prefer querying audit.events.
+   */
+  readonly events?: Array<AuditEvent & { actorId: string | null }>;
 
-  constructor(@Inject(KYSELY) private readonly db: Db) {}
+  constructor(@Inject(KYSELY) private readonly db: Db, @Inject(APP_CONFIG) cfg: AppConfig) {
+    if (cfg.SMS_NODE_ENV === 'test') this.events = [];
+  }
 
   async record(event: AuditEvent, actor: AuthUser | null, tx?: unknown): Promise<void> {
     const ctx = currentRequestContext();
@@ -38,6 +46,7 @@ export class DbAuditService implements AuditService {
       reason: event.reason ?? null,
       request_id: ctx?.requestId ?? null,
     }).execute();
+    this.events?.push({ ...event, changes: changes ?? undefined, actorId: who?.id ?? null });
     ctx?.audited.add(`${event.action}:${event.entityType}`);
     this.logger.debug(`${event.action} ${event.entityType} ${event.entityId ?? ''}`);
   }

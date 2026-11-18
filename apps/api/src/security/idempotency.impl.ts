@@ -1,25 +1,10 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { ErrorCodes } from '@sms/shared';
 import { AppError } from '../common/app-error';
-import { KYSELY, type Db, type Tx } from '../common/db/database.module';
+import { KYSELY, type Db } from '../common/db/database.module';
 import type { AuthUser } from './auth-user';
 import type { IdempotencyService, IdempotentResult } from './idempotency';
-
-const txStore = new AsyncLocalStorage<Tx>();
-
-/**
- * The transaction holding the idempotency claim for the current `run()`.
- * Callers that do their business writes inside it get exactly-once semantics even across crashes:
- *   await idem.run(key, route, body, user, async () => {
- *     const tx = currentIdempotencyTx();           // may be undefined outside run()
- *     return (tx ? fn(tx) : db.transaction().execute(fn));
- *   });
- */
-export function currentIdempotencyTx(): Tx | undefined {
-  return txStore.getStore();
-}
 
 /** Canonical JSON (sorted keys) so that key order does not change the request hash. */
 export function stableStringify(v: unknown): string {
@@ -36,9 +21,13 @@ export function requestHash(route: string, body: unknown): string {
 
 /**
  * Idempotency-Key handling on app.idempotency_records (unique per user, route, key).
- * The claim row is inserted first inside a transaction; a concurrent request with the same key waits on the
- * unique index until the first one commits, then replays its stored response. Failures roll the claim back,
- * so a failed request can be retried with the same key. Only successful (2xx) responses are stored.
+ * 1. A claim row (response_status NULL = "in progress") is committed first. A concurrent request with the same key
+ *    gets 409 "already being processed"; a later one replays the stored response (or 422 if the body differs).
+ * 2. `fn` runs with its own business transaction (no connection is held while it runs, so 100 parallel payments
+ *    cannot exhaust the pool).
+ * 3. On success (2xx) the response is stored; on failure or non-2xx the claim is deleted so the user can retry.
+ * Money endpoints also keep their own unique idempotency column (e.g. payments.idempotency_key), so a crash between
+ * steps 2 and 3 cannot create a duplicate payment.
  */
 @Injectable()
 export class DbIdempotencyService implements IdempotencyService {
@@ -50,30 +39,30 @@ export class DbIdempotencyService implements IdempotencyService {
       throw new AppError(400, ErrorCodes.VALIDATION_FAILED, 'Invalid Idempotency-Key header', 'Use 16 to 128 letters, digits or dashes.');
     }
     const hash = requestHash(route, body);
-
-    const existing = await this.find(user.id, route, key);
-    if (existing) return this.replay<T>(existing, hash);
-
-    return this.db.transaction().execute(async (tx) => {
-      const claimed = await tx.insertInto('idempotency_records')
-        .values({ key, user_id: user.id, route, request_hash: hash })
-        .onConflict((oc) => oc.columns(['user_id', 'route', 'key']).doNothing())
-        .returning('id').executeTakeFirst();
-      if (!claimed) {
-        const row = await this.find(user.id, route, key);
-        if (!row) throw new AppError(409, ErrorCodes.VERSION_CONFLICT, 'This request is already being processed. Please wait a moment.');
-        return this.replay<T>(row, hash);
-      }
-      const result = await txStore.run(tx, fn);
-      if (result.status >= 200 && result.status < 300) {
-        await tx.updateTable('idempotency_records')
-          .set({ response_status: result.status, response_body: JSON.stringify(result.body ?? null) })
-          .where('id', '=', claimed.id).execute();
-      } else {
-        await tx.deleteFrom('idempotency_records').where('id', '=', claimed.id).execute();
-      }
-      return { ...result, replayed: false };
-    });
+    const claimed = await this.db.insertInto('idempotency_records')
+      .values({ key, user_id: user.id, route, request_hash: hash })
+      .onConflict((oc) => oc.columns(['user_id', 'route', 'key']).doNothing())
+      .returning('id').executeTakeFirst();
+    if (!claimed) {
+      const row = await this.find(user.id, route, key);
+      if (!row) throw new AppError(409, ErrorCodes.VERSION_CONFLICT, 'This request is already being processed. Please wait a moment.');
+      return this.replay<T>(row, hash);
+    }
+    let result: { status: number; body: T };
+    try {
+      result = await fn();
+    } catch (e) {
+      await this.db.deleteFrom('idempotency_records').where('id', '=', claimed.id).execute();
+      throw e;
+    }
+    if (result.status >= 200 && result.status < 300) {
+      await this.db.updateTable('idempotency_records')
+        .set({ response_status: result.status, response_body: JSON.stringify(result.body ?? null) })
+        .where('id', '=', claimed.id).execute();
+    } else {
+      await this.db.deleteFrom('idempotency_records').where('id', '=', claimed.id).execute();
+    }
+    return { ...result, replayed: false };
   }
 
   /** Deletes records older than 7 days (retention per schema.md). Called by a daily job. */
