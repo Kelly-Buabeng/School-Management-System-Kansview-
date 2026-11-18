@@ -1,7 +1,7 @@
 # CR-0004: generic conflict error code, and additive request fields for Agent B endpoints
 
 - Raised by: Agent B, 2026-11-18
-- Status: Proposed
+- Status: **Accepted** by Orchestrator 2026-11-18. `RECORD_ALREADY_EXISTS` added to packages/shared/src/error-codes.ts; Agent B switches its 409 conflicts to it in a follow-up. The additive fields are accepted as documented.
 
 ## 1. New shared error code `RECORD_ALREADY_EXISTS` (409)
 
