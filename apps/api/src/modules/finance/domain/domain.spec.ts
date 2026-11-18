@@ -188,6 +188,11 @@ describe('cash-up', () => {
     expect(v.totalPesewas).toBe(-100);
     expect(() => variance(exp, { cash: 1.5 })).toThrow(RangeError);
   });
+  it('treats methods missing from stored expected totals as zero (sparse JSON from a closed cash-up)', () => {
+    const v = variance({ cash: 641000, momo_mtn: 102000 }, { cash: 641000, momo_mtn: 100000, at_money: 500 });
+    expect(v.byMethod).toMatchObject({ cash: 0, momo_mtn: -2000, at_money: 500, cheque: 0 });
+    expect(v.totalPesewas).toBe(-1500);
+  });
 });
 
 describe('receipt sequence check', () => {

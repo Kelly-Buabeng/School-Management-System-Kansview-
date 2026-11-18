@@ -24,13 +24,15 @@ export interface Variance {
 }
 
 /** Variance = counted − expected per method. Methods not counted are treated as zero counted. */
-export function variance(expected: ByMethod, counted: Partial<ByMethod>): Variance {
+export function variance(expected: Partial<ByMethod>, counted: Partial<ByMethod>): Variance {
   const byMethod = emptyByMethod();
   let total = 0;
   for (const m of PAYMENT_METHODS) {
     const c = counted[m] ?? 0;
+    const e = expected[m] ?? 0; // stored totals may omit methods with no payments that day
     assertPesewas(c);
-    byMethod[m] = c - expected[m];
+    assertPesewas(e);
+    byMethod[m] = c - e;
     total = addPesewas(total, byMethod[m]);
   }
   return { byMethod, totalPesewas: total };

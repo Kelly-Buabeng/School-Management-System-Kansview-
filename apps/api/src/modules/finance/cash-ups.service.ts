@@ -5,7 +5,7 @@ import { AppError } from '../../common/app-error';
 import { KYSELY, type Db, type Tx } from '../../common/db/database.module';
 import { AUDIT_SERVICE, type AuditService } from '../../security/audit.service';
 import type { AuthUser } from '../../security/auth-user';
-import { expectedByMethod, variance, type ByMethod, type PaymentMethod } from './domain';
+import { emptyByMethod, expectedByMethod, variance, type ByMethod, type PaymentMethod } from './domain';
 import { toIso } from './finance-store';
 import { isUniqueViolation } from './support';
 
@@ -74,7 +74,8 @@ export class CashUpsService {
     const cu = await db.selectFrom('cash_ups').selectAll().where('id', '=', id).executeTakeFirst();
     if (!cu) throw AppError.notFound('cash-up');
     const date = String(cu.business_date);
-    const exp = cu.status === 'closed' && cu.expected_by_method ? (cu.expected_by_method as ByMethod) : await this.expected(db, date, id);
+    // Stored JSON may omit methods with no payments; always return all six methods.
+    const exp: ByMethod = cu.status === 'closed' && cu.expected_by_method ? { ...emptyByMethod(), ...(cu.expected_by_method as Partial<ByMethod>) } : await this.expected(db, date, id);
     const ps = await this.paymentsFor(db, date, id);
     const expectedTotal = Object.values(exp).reduce((a, b) => a + b, 0);
     return {
