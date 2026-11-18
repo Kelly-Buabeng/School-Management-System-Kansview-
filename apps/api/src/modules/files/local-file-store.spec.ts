@@ -35,6 +35,15 @@ describe('LocalFileStore', () => {
     expect(await readdir(join(dir, 'tmp'))).toEqual([]); // no temp leftovers
   });
 
+  it('accepts the upload pipeline month-prefixed keys', async () => {
+    const key = '2026-11/0190a1b2-0000-7000-8000-000000000abc';
+    await store.put(key, Buffer.from('x'), 'application/pdf');
+    expect(store.objectPath(key)).toBe(join(dir, 'objects', '2026-11', '01', '90', '0190a1b2-0000-7000-8000-000000000abc'));
+    expect(await store.stat(key)).toEqual({ sizeBytes: 1 });
+    await store.quarantine(key);
+    expect(await store.stat(key)).toBeNull();
+  });
+
   it('overwrites atomically', async () => {
     const key = generateStorageKey();
     await store.put(key, Buffer.from('one'), 'text/plain');
@@ -48,7 +57,7 @@ describe('LocalFileStore', () => {
     await expect(store.get(key)).rejects.toMatchObject({ status: 404 });
   });
 
-  it.each(['../../etc/passwd', 'abc/def/ghi/jkl/mno', '..', '', 'short', 'a'.repeat(200), 'key with spaces in it ok', '%2e%2e%2f%2e%2e%2fetcpasswd'])(
+  it.each(['../../etc/passwd', 'abc/def/ghi/jkl/mno', '..', '', 'short', 'a'.repeat(200), 'key with spaces in it ok', '%2e%2e%2f%2e%2e%2fetcpasswd', '../01/0190a1b2-0000-7000-8000', '2026-11/../../0190a1b2-0000-7000', '2026-1/0190a1b2-0000-7000-8000', '/2026-11/0190a1b2-0000-7000-8000'])(
     'rejects unsafe key %j', async (key) => {
       await expect(store.put(key, Buffer.from('x'), 'text/plain')).rejects.toMatchObject({ status: 400 });
       await expect(store.get(key)).rejects.toMatchObject({ status: 400 });

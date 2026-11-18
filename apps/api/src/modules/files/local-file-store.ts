@@ -10,9 +10,10 @@ import type { FileStore } from '../../common/contracts';
 
 /**
  * Storage keys are random, URL-safe and never derived from user input (file names, student names).
- * The strict pattern makes path traversal impossible: no dots, no slashes, no separators of any kind.
+ * The strict pattern makes path traversal impossible: no dots and no separators, except the optional month
+ * prefix the upload pipeline uses (`2026-11/<uuid>`), which becomes a fixed directory level.
  */
-const KEY_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+const KEY_PATTERN = /^(?:(\d{4}-\d{2})\/)?([A-Za-z0-9_-]{16,128})$/;
 
 /** New random storage key (32 base64url chars = 192 bits). Use this for `files.storage_key`. */
 export function generateStorageKey(): string {
@@ -23,6 +24,12 @@ export function assertValidStorageKey(key: string): void {
   if (typeof key !== 'string' || !KEY_PATTERN.test(key)) {
     throw new AppError(400, 'VALIDATION_FAILED', 'Invalid file reference');
   }
+}
+
+function splitKey(key: string): { prefix: string[]; name: string } {
+  assertValidStorageKey(key);
+  const m = KEY_PATTERN.exec(key)!;
+  return { prefix: m[1] ? [m[1]] : [], name: m[2]! };
 }
 
 /**
@@ -46,15 +53,15 @@ export class LocalFileStore implements FileStore {
 
   /** Absolute path for a key. Exposed for tests and ops tooling. */
   objectPath(key: string): string {
-    assertValidStorageKey(key);
-    const p = join(this.root, 'objects', key.slice(0, 2), key.slice(2, 4), key);
+    const { prefix, name } = splitKey(key);
+    const p = join(this.root, 'objects', ...prefix, name.slice(0, 2), name.slice(2, 4), name);
     this.assertInsideRoot(p);
     return p;
   }
 
   quarantinePath(key: string): string {
-    assertValidStorageKey(key);
-    const p = join(this.root, 'quarantine', key);
+    const { prefix, name } = splitKey(key);
+    const p = join(this.root, 'quarantine', ...prefix, name);
     this.assertInsideRoot(p);
     return p;
   }
@@ -64,7 +71,7 @@ export class LocalFileStore implements FileStore {
     const tmpDir = join(this.root, 'tmp');
     await mkdir(tmpDir, { recursive: true, mode: 0o700 });
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-    const tmp = join(tmpDir, `${key}.${randomBytes(6).toString('hex')}.part`);
+    const tmp = join(tmpDir, `${splitKey(key).name}.${randomBytes(6).toString('hex')}.part`);
     const fh = await open(tmp, 'wx', 0o600);
     try {
       await fh.writeFile(data);

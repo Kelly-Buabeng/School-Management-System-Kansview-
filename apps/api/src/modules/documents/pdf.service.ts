@@ -1,9 +1,11 @@
 // Owner: Agent F.
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import PdfPrinter from 'pdfmake';
 import type { TDocumentDefinitions, TFontDictionary } from 'pdfmake/interfaces';
 import { AppError } from '../../common/app-error';
 import type { PdfDocType, PdfService } from '../../common/contracts';
+import { KYSELY, type Db } from '../../common/db/database.module';
+import { CONSUMER_ADAPTERS } from './consumer-adapters';
 import { SCHOOL_HEADER_SOURCE, type SchoolHeaderSource } from './school-header.source';
 import { BASE_STYLES, PDF_TEMPLATES, type PdfDataByType } from './templates';
 
@@ -40,7 +42,10 @@ export class PdfmakePdfService implements PdfService {
   private readonly logger = new Logger('PdfService');
   private readonly printer = new PdfPrinter(bundledFonts());
 
-  constructor(@Inject(SCHOOL_HEADER_SOURCE) private readonly schoolSource: SchoolHeaderSource) {}
+  constructor(
+    @Inject(SCHOOL_HEADER_SOURCE) private readonly schoolSource: SchoolHeaderSource,
+    @Optional() @Inject(KYSELY) private readonly db?: Db,
+  ) {}
 
   /** Typed convenience wrapper: `renderTyped('receipt', data)` checks the data shape at compile time. */
   renderTyped<K extends PdfDocType>(docType: K, data: PdfDataByType[K], opts?: { watermark?: Watermark }): Promise<Buffer> {
@@ -50,7 +55,13 @@ export class PdfmakePdfService implements PdfService {
   async render(docType: PdfDocType, data: Record<string, unknown>, opts: { watermark?: Watermark } = {}): Promise<Buffer> {
     const template = PDF_TEMPLATES[docType];
     if (!template) throw new AppError(400, 'VALIDATION_FAILED', 'Unknown document type', docType);
-    const parsed = template.schema.safeParse(data);
+    let parsed = template.schema.safeParse(data);
+    if (!parsed.success) {
+      // Older consumer shapes (see consumer-adapters.ts) are translated, then validated against the typed shape.
+      const adapter = CONSUMER_ADAPTERS[docType];
+      const adapted = adapter && this.db ? await adapter(data, this.db) : null;
+      if (adapted) parsed = template.schema.safeParse(adapted);
+    }
     if (!parsed.success) {
       // A consumer passed the wrong shape: a programming error, not a user error. Log details, keep the message plain.
       this.logger.error({ docType, issues: parsed.error.issues }, 'invalid PDF data');
