@@ -116,6 +116,9 @@ importers:
 
   db:
     dependencies:
+      argon2:
+        specifier: ^0.43.0
+        version: 0.43.1
       pg:
         specifier: ^8.16.0
         version: 8.23.1
@@ -126,6 +129,9 @@ importers:
       '@types/pg':
         specifier: ^8.15.0
         version: 8.23.1
+      kysely:
+        specifier: ^0.28.0
+        version: 0.28.20
       vitest:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@22.20.5)(yaml@2.9.1)
