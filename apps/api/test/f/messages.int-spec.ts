@@ -172,8 +172,8 @@ describe('messages endpoints', () => {
     const jobs = await seed.q<{ start_after: Date }>(`SELECT j.start_after FROM pgboss.job j JOIN message_recipients r ON r.id::text = j.data->>'recipientId' WHERE r.message_id = $1`, [r.body.id]);
     for (const j of jobs) expect(new Date(j.start_after).getTime()).toBeLessThan(new Date('2026-11-18T07:00:00Z').getTime());
 
-    const normal = await send(classAnnouncement).expect(202); // head: over threshold → approval; at night
-    expect(normal.body.status).toBe('pending_approval');
+    const normal = await send(classAnnouncement).expect(202); // head: over threshold but no approval needed (CR-0006); delayed by quiet hours
+    expect(normal.body).toMatchObject({ status: 'queued', needsApproval: false });
   });
 
   it('non-emergency sends at night are delayed to 07:00', async () => {

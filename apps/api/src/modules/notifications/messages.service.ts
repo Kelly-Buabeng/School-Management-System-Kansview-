@@ -218,7 +218,8 @@ export class MessagesService {
     for (const r of recipients) r.body = renderTemplate(body, r.ctx).text;
     const deliverable = recipients.filter((r) => !r.optedOut);
     const threshold = await this.approvalThreshold();
-    const needsApproval = req.kind !== 'emergency' && deliverable.length > threshold && !user.permissions.has('messages:bulk_approve');
+    // rbac.md / openapi: bulk over the threshold needs approval unless the sender is ADMIN (messages:bulk_approve) or HEADTEACHER (CR-0006).
+    const needsApproval = req.kind !== 'emergency' && deliverable.length > threshold && !user.permissions.has('messages:bulk_approve') && !user.roles.includes('HEADTEACHER');
     const segments = deliverable.map((r) => smsInfo(r.body).segments);
     const totalSegments = segments.reduce((a, b) => a + b, 0);
     return { templateId, body, recipients, deliverable, threshold, needsApproval, segments, totalSegments };
