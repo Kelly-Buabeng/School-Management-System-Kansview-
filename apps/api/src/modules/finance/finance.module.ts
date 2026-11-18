@@ -1,22 +1,30 @@
 // Owner: Agent C. See docs/plan/phase1-agent-tasks.md. Do not edit from another agent; raise a change request.
-import { Global, Injectable, Module } from '@nestjs/common';
-import { LEDGER_SERVICE, type LedgerService, type StudentBalance } from '../../common/contracts';
+import { Global, Module } from '@nestjs/common';
+import { LEDGER_SERVICE } from '../../common/contracts';
+import { FinanceStore } from './finance-store';
+import { FeeStructuresService } from './fee-structures.service';
+import { InvoicesService } from './invoices.service';
+import { PaymentsService } from './payments.service';
+import { AdjustmentsService } from './adjustments.service';
+import { LedgerServiceImpl } from './ledger.service';
+import { CashUpsService } from './cash-ups.service';
+import { ReportsService } from './reports.service';
+import { ReportsController } from './reports.controller';
+import {
+  AdjustmentsController, BalancesController, CashUpsController, FeesController, InvoicesController, PaymentsController,
+} from './finance.controllers';
 
-// SCAFFOLD STUB(S): replace with the real implementation and update the binding below.
-@Injectable()
-export class StubLedgerService implements LedgerService {
-  async balance(studentId: string): Promise<StudentBalance> {
-    return { studentId, balancePesewas: 0, currentTermOutstandingPesewas: 0, arrearsPesewas: 0, creditPesewas: 0, lastPaymentAt: null };
-  }
-  async outstandingByStudent(ids: string[]): Promise<Map<string, number>> { return new Map(ids.map((i) => [i, 0])); }
-  async termCollectionSummary(): Promise<{ billedPesewas: number; collectedPesewas: number; outstandingPesewas: number }> {
-    return { billedPesewas: 0, collectedPesewas: 0, outstandingPesewas: 0 };
-  }
-}
-
+/**
+ * Fees, invoices, manual payments (v1: recorded by the bursar only, no gateway), adjustments, ledger, cash-ups, reports.
+ * Global so other modules can inject LEDGER_SERVICE by token.
+ */
 @Global()
 @Module({
-  providers: [{ provide: LEDGER_SERVICE, useClass: StubLedgerService }],
+  controllers: [FeesController, InvoicesController, PaymentsController, AdjustmentsController, BalancesController, CashUpsController, ReportsController],
+  providers: [
+    FinanceStore, FeeStructuresService, InvoicesService, PaymentsService, AdjustmentsService, LedgerServiceImpl, CashUpsService, ReportsService,
+    { provide: LEDGER_SERVICE, useExisting: LedgerServiceImpl },
+  ],
   exports: [LEDGER_SERVICE],
 })
 export class FinanceModule {}
