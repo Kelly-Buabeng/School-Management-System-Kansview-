@@ -367,13 +367,16 @@ export class PaymentsService {
     const accepted = await this.uploads.accept({ originalName: file.originalname, buffer: file.buffer, declaredMimeType: file.mimetype }, UPLOAD_POLICIES.paymentEvidence, user.id);
     try {
       await this.db.transaction().execute(async (tx) => {
-        await tx.updateTable('payments').set({ attachment_file_id: accepted.fileId, updated_by: user.id }).where('id', '=', id).execute();
+        await sql`SELECT app.attach_payment_evidence(${id}::uuid, ${accepted.fileId}::uuid, ${user.id}::uuid)`.execute(tx);
         await this.audit.record({ action: 'update', entityType: 'payment', entityId: id, studentId: p.studentId, changes: { attachmentFileId: { before: p.attachmentFileId, after: accepted.fileId } } }, user, tx);
       });
     } catch (e) {
-      // The payments guard only allows confirmed → reversed (see CR-0004-C); report clearly instead of a 500.
-      this.logger.warn({ paymentId: id, err: e }, 'payment attachment refused by database guard');
-      throw new AppError(422, ErrorCodes.NOT_IMPLEMENTED, 'Evidence cannot be attached to a saved payment yet', 'Keep the slip with the receipt for now.');
+      // app.attach_payment_evidence (CR-0005) allows one attachment while the cash-up is open / on the day received.
+      const code = (e as { code?: string }).code;
+      this.logger.warn({ paymentId: id, code, err: e }, 'payment attachment refused by database');
+      if (code === '23505') throw new AppError(409, ErrorCodes.RECORD_ALREADY_EXISTS, 'Evidence is already attached to this receipt');
+      if (code === '55000') throw new AppError(422, ErrorCodes.CASH_UP_CLOSED, 'Evidence can no longer be attached', 'Evidence can only be added on the day of payment, before the cash-up is closed.');
+      throw e;
     }
     return this.view(this.db, id);
   }
