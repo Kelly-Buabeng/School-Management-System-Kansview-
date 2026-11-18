@@ -18,13 +18,15 @@ mk() { # make <name> <command producing the value>
 }
 pw() { openssl rand -base64 33 | tr -d '/+=\n' | cut -c1-40; }
 key32() { openssl rand -base64 32; }
+# Field-encryption key ring (format of apps/api/src/security/field-crypto.service.ts): key id 1 + blind-index key.
+masterkey() { echo "# Kansview field-encryption key ring. Add new ids for rotation; never delete an old line."; echo "1:$(openssl rand -base64 32)"; echo "bidx:$(openssl rand -base64 32)"; }
 empty() { :; }
 
 mk db_superuser_password pw
 mk db_owner_password pw
 mk db_app_password pw
 mk db_backup_password pw
-mk master_key key32
+mk master_key masterkey
 mk session_key key32
 if [[ ! -s "$dir/backup_age_identity" ]]; then
   age-keygen -o "$dir/backup_age_identity" 2>/dev/null
@@ -40,6 +42,16 @@ done
 # Containers run as unprivileged users and read their bind-mounted copy; the folder itself stays root-only.
 chmod 0444 "$dir"/* 2>/dev/null || true
 chmod 0400 "$dir/backup_age_identity"
+# The api refuses a master key readable by anyone but its owner, so it must belong to the container's node user.
+APP_UID="${SMS_APP_UID:-1000}"
+for f in master_key session_key; do
+  if [[ "$(id -u)" == "0" ]]; then
+    chown "$APP_UID:$APP_UID" "$dir/$f"
+  elif [[ "$(stat -c %u "$dir/$f")" != "$APP_UID" ]]; then
+    echo "WARNING: run as root (sudo) so $f can be given to uid $APP_UID; the api will not start otherwise" >&2
+  fi
+  chmod 0400 "$dir/$f"
+done
 cat <<'MSG'
 
 NEXT: make the RECOVERY KIT now (see docs/operations/backup-and-recovery-runbook.md, "Recovery kit"):

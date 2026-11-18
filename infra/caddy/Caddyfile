@@ -6,7 +6,8 @@
 #                                      certificate on staff devices once (docs/operations/deployment-guide.md).
 #                       an e-mail   -> public Let's Encrypt/ZeroSSL certificate (domain must be reachable on ports 80/443)
 #   SMS_API_UPSTREAM    default api:3000
-#   SMS_CSP_STYLE_SRC   default 'self'. Only relax (e.g. 'self' 'unsafe-inline') if the UI cannot avoid inline <style>.
+#   SMS_CSP_STYLE_SRC   default 'self' 'unsafe-inline': Mantine UI injects <style> elements at runtime. Scripts stay
+#                       strictly 'self'. Tighten to 'self' once the web app passes a CSP nonce to Mantine.
 #
 # Caddy runs unprivileged on 8080/8443; Compose publishes them on host ports 80/443.
 
@@ -36,7 +37,7 @@
 (security_headers) {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src {$SMS_CSP_STYLE_SRC:'self'}; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src {$SMS_CSP_STYLE_SRC:'self' 'unsafe-inline'}; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"

@@ -48,6 +48,7 @@ services:
       SMS_DOMAIN: ${SMS_DOMAIN:?set SMS_DOMAIN in .env}
       SMS_TLS: ${SMS_TLS:-internal}
       SMS_API_UPSTREAM: api:3000
+      SMS_CSP_STYLE_SRC: ${SMS_CSP_STYLE_SRC:-'self' 'unsafe-inline'}   # Mantine injects <style> tags; scripts stay strictly 'self'
     ports:
       - "${SMS_HTTP_PORT:-80}:8080"
       - "${SMS_HTTPS_PORT:-443}:8443"
@@ -103,7 +104,9 @@ services:
     image: ${SMS_IMAGE_PREFIX:-kansview}/sms-api:${SMS_VERSION:-latest}
     command: ["worker"]
     init: true
-    environment: *api-env
+    environment:
+      <<: *api-env
+      SMS_PROCESS_ROLE: worker      # starts pg-boss maintenance, SMS sending and housekeeping (only here)
     secrets: [db_app_password, master_key, session_key]
     volumes:
       - storage:/var/lib/sms/storage

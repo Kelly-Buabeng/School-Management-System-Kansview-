@@ -35,5 +35,8 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
+-- pg-boss queue tables (follow-ups item 8): its own schema, owned by the login user the api and worker share.
+CREATE SCHEMA IF NOT EXISTS pgboss AUTHORIZATION sms_api;
+GRANT USAGE ON SCHEMA pgboss TO sms_readonly;
 SQL
 echo "kansview: roles and database ready"

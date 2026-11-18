@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { RequestMethod } from '@nestjs/common';
 import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
-import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
+import { DiscoveryService, MetadataScanner, ModulesContainer, Reflector } from '@nestjs/core';
 import { parse } from 'yaml';
 import { createTestDatabase, type TestDatabase } from './support/test-db';
 import { createTestApp } from './support/test-app';
@@ -15,6 +15,14 @@ import { createTestApp } from './support/test-app';
 const SPEC_PATH = join(__dirname, '../../../packages/contracts/openapi.yaml');
 const GLOBAL_PREFIX = '/api/v1';
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
+
+/**
+ * Known drift, each with an open change request. Keep this list short: a NEW undocumented route still fails.
+ * Remove an entry as soon as the spec gains the path (the test fails if an entry is no longer needed).
+ */
+const KNOWN_UNDOCUMENTED: Record<string, string> = {
+  'GET /students/{}/sibling-discount-suggestion': 'CR-0009-h-document-sibling-discount-suggestion-route',
+};
 
 /** `/students/:id/guardians/:guardianId` and `/students/{id}/guardians/{guardianId}` → `/students/{}/guardians/{}` */
 export function normalisePath(p: string): string {
@@ -32,9 +40,9 @@ function specOperations(): Set<string> {
 }
 
 function codeOperations(app: INestApplication): Map<string, string> {
-  const discovery = app.get(DiscoveryService);
-  const scanner = app.get(MetadataScanner);
-  const reflector = app.get(Reflector);
+  const discovery = new DiscoveryService(app.get(ModulesContainer, { strict: false }));
+  const scanner = new MetadataScanner();
+  const reflector = new Reflector();
   const ops = new Map<string, string>(); // op -> Controller.handler
   for (const wrapper of discovery.getControllers()) {
     const { instance, metatype } = wrapper;
@@ -86,7 +94,8 @@ describe('contract: Nest routes match openapi.yaml', () => {
     const code = codeOperations(app);
     expect(code.size).toBeGreaterThan(0);
 
-    const undocumented = [...code.entries()].filter(([op]) => !spec.has(op)).map(([op, h]) => `${op}  (${h})`).sort();
+    const undocumented = [...code.entries()].filter(([op]) => !spec.has(op) && !KNOWN_UNDOCUMENTED[op]).map(([op, h]) => `${op}  (${h})`).sort();
+    const staleAllowList = Object.keys(KNOWN_UNDOCUMENTED).filter((op) => spec.has(op) || !code.has(op));
     const notImplemented = [...spec].filter((op) => !code.has(op)).sort();
 
     const implemented = spec.size - notImplemented.length;
@@ -98,6 +107,8 @@ describe('contract: Nest routes match openapi.yaml', () => {
     if (undocumented.length) {
       console.error(`[contract-routes] Routes in code but NOT in openapi.yaml (add them via a change request or remove them):\n  ${undocumented.join('\n  ')}`);
     }
+    for (const [op, cr] of Object.entries(KNOWN_UNDOCUMENTED)) if (code.has(op) && !spec.has(op)) console.warn(`[contract-routes] known drift (${cr}): ${op}`);
     expect(undocumented, 'routes in code but not in packages/contracts/openapi.yaml').toEqual([]);
+    expect(staleAllowList, 'KNOWN_UNDOCUMENTED entries that can be removed').toEqual([]);
   });
 });
