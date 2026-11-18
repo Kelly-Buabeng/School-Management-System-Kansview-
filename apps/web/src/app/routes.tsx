@@ -18,10 +18,10 @@ const ComingSoon = page(() => import('@/features/misc/ComingSoon'));
 
 export const pages = {
   dashboard: ComingSoon,
-  students: ComingSoon,
-  studentProfile: ComingSoon,
-  admission: ComingSoon,
-  guardian: ComingSoon,
+  students: page(() => import('@/features/students/StudentListPage')),
+  studentProfile: page(() => import('@/features/students/StudentProfilePage')),
+  admission: page(() => import('@/features/students/AdmissionWizard')),
+  guardian: page(() => import('@/features/guardians/GuardianPage')),
   emergency: ComingSoon,
   recordPayment: ComingSoon,
   payments: ComingSoon,
