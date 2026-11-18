@@ -1,6 +1,6 @@
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
 import type { RouteObject } from 'react-router';
-import { AppLayout, NotFoundPage, PageLoader, RequireAuth } from '@/layout/AppLayout';
+import { AppLayout, NotFoundPage, PageLoader, RequireAuth, RouteError } from '@/layout/AppLayout';
 
 // Every screen is its own chunk so the first load stays small on slow connections.
 type Lazy = LazyExoticComponent<ComponentType>;
@@ -13,6 +13,7 @@ const el = (C: Lazy) => (
 
 const LoginPage = page(() => import('@/auth/LoginPages').then((m) => ({ default: m.LoginPage })));
 const MfaPage = page(() => import('@/auth/LoginPages').then((m) => ({ default: m.MfaPage })));
+const MfaSetupPage = page(() => import('@/auth/LoginPages').then((m) => ({ default: m.MfaSetupPage })));
 const ChangePasswordPage = page(() => import('@/auth/LoginPages').then((m) => ({ default: m.ChangePasswordPage })));
 
 export const pages = {
@@ -48,11 +49,13 @@ export const pages = {
 export const routes: RouteObject[] = [
   { path: '/login', element: el(LoginPage) },
   { path: '/mfa', element: el(MfaPage) },
+  { path: '/mfa/setup', element: el(MfaSetupPage) },
   { path: '/change-password', element: <RequireAuth>{el(ChangePasswordPage)}</RequireAuth> },
   // Emergency View is full-screen (phone first), outside the menu layout.
-  { path: '/students/:id/emergency', element: <RequireAuth>{el(pages.emergency)}</RequireAuth> },
+  { path: '/students/:id/emergency', errorElement: <RouteError />, element: <RequireAuth>{el(pages.emergency)}</RequireAuth> },
   {
     path: '/',
+    errorElement: <RouteError />,
     element: (
       <RequireAuth>
         <AppLayout />

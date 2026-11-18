@@ -2,6 +2,7 @@ import { Button, Card, Group, SegmentedControl, Select, SimpleGrid, Stack, Table
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { listOf, normAdjustment } from '@/api/normalise';
 import { api } from '@/api/client';
 import { useCurrentTerm } from '@/api/queries';
 import type { Adjustment, ListResponse } from '@/api/types';
@@ -68,7 +69,7 @@ export default function AdjustmentsPage() {
   const { me, can } = useAuth();
   const qc = useQueryClient();
   const [status, setStatus] = useState<string>('pending');
-  const query = useQuery({ queryKey: ['adjustments', status], queryFn: () => api.get<ListResponse<Adjustment>>('/adjustments', { query: { status } }).then((r) => r.data) });
+  const query = useQuery({ queryKey: ['adjustments', status], queryFn: () => api.get<unknown>('/adjustments', { query: { status } }).then((r) => listOf<Record<string, unknown>>(r).map(normAdjustment)) });
   const decide = useMutation({
     mutationFn: ({ id, action }: { id: string; action: 'approve' | 'reject' }) => (action === 'approve' ? api.post('/adjustments/{id}/approve', { path: { id } }) : api.post('/adjustments/{id}/reject', { path: { id } })),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['adjustments'] }),

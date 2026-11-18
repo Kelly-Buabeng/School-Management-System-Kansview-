@@ -42,12 +42,14 @@ export function LoginPage() {
 
   if (status === 'authenticated') return <Navigate to={me?.mustChangePassword ? `/change-password?next=${encodeURIComponent(next)}` : next} replace />;
   if (status === 'mfa') return <Navigate to={`/mfa?next=${encodeURIComponent(next)}`} replace />;
+  if (status === 'enrol') return <Navigate to={`/mfa/setup?next=${encodeURIComponent(next)}`} replace />;
 
   const onSubmit = form.handleSubmit(async (v) => {
     setError(null);
     try {
       const res = await login(v.username, v.password);
       if (res.mfaRequired) navigate(`/mfa?next=${encodeURIComponent(next)}`, { replace: true });
+      else if (res.mfaEnrolmentRequired) navigate(`/mfa/setup?next=${encodeURIComponent(next)}`, { replace: true });
     } catch (e) {
       setError(e);
       form.setValue('password', '');
@@ -190,6 +192,56 @@ export function ChangePasswordPage() {
           </Button>
         </Stack>
       </form>
+    </AuthCard>
+  );
+}
+
+export function MfaSetupPage() {
+  const { status, startMfaSetup, enableMfa } = useAuth();
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const next = safeNext(params.get('next'));
+  const [setup, setSetup] = useState<{ otpauthUri: string; secret: string } | null>(null);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  if (status !== 'enrol' && !codes) return <Navigate to={status === 'authenticated' ? next : '/login'} replace />;
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthCard title="Set up your security code">
+      <Stack>
+        <ProblemAlert error={error} />
+        {codes ? (
+          <>
+            <Alert color="green" title="Done">Write these recovery codes on paper and keep them safe. Each works once if you lose your phone.</Alert>
+            <Text ff="monospace" fw={700}>{codes.join('  ')}</Text>
+            <Button onClick={() => navigate(next, { replace: true })}>I have written them down</Button>
+          </>
+        ) : !setup ? (
+          <>
+            <Text size="sm">Administrators and bursars must use a phone authenticator app (for example Google Authenticator). It takes one minute.</Text>
+            <Button loading={busy} onClick={() => void run(async () => setSetup(await startMfaSetup()))}>Start</Button>
+          </>
+        ) : (
+          <>
+            <Text size="sm">In the authenticator app choose “Enter a setup key” and type this key:</Text>
+            <Text ff="monospace" fw={700} style={{ wordBreak: 'break-all' }}>{setup.secret}</Text>
+            <TextInput label="Then type the 6-digit code it shows" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.currentTarget.value.replace(/\D/g, '').slice(0, 6))} />
+            <Button disabled={code.length !== 6} loading={busy} onClick={() => void run(async () => setCodes(await enableMfa(code)))}>Turn on</Button>
+          </>
+        )}
+      </Stack>
     </AuthCard>
   );
 }

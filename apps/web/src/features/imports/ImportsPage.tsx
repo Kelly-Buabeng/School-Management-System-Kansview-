@@ -3,6 +3,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { listOf } from '@/api/normalise';
 import { api, downloadFile, upload } from '@/api/client';
 import type { ImportJob, ImportRow, ImportType, ListResponse, Page } from '@/api/types';
 import { Can } from '@/auth/AuthContext';
@@ -17,7 +18,7 @@ const ROW_COLOURS: Record<ImportRow['status'], string> = { valid: 'green', warni
 function Rows({ job }: { job: ImportJob }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState('all');
-  const rows = useQuery({ queryKey: ['import', job.id, 'rows', status], queryFn: () => api.get<Page<ImportRow>>('/imports/{id}/rows', { path: { id: job.id }, query: { status: status === 'all' ? undefined : status, pageSize: 100 } }).then((r) => r.data) });
+  const rows = useQuery({ queryKey: ['import', job.id, 'rows', status], queryFn: () => api.get<unknown>('/imports/{id}/rows', { path: { id: job.id }, query: { status: status === 'all' ? undefined : status, pageSize: 100 } }).then(listOf<ImportRow>) });
   const resolve = useMutation({
     mutationFn: ({ row, resolution }: { row: number; resolution: string }) => api.patch('/imports/{id}/rows/{rowNumber}', { path: { id: job.id, rowNumber: row }, body: { resolution } }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['import', job.id, 'rows'] }),
@@ -95,7 +96,7 @@ export default function ImportsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [commitKey, setCommitKey] = useState(() => newIdempotencyKey('imp'));
-  const list = useQuery({ queryKey: ['imports'], queryFn: () => api.get<ListResponse<ImportJob>>('/imports').then((r) => r.data) });
+  const list = useQuery({ queryKey: ['imports'], queryFn: () => api.get<unknown>('/imports').then(listOf<ImportJob>) });
   const job = useQuery({ queryKey: ['import', jobId], queryFn: () => api.get<ImportJob>('/imports/{id}', { path: { id: jobId! } }), enabled: Boolean(jobId), refetchInterval: (q) => (q.state.data && ['validating', 'committing'].includes(q.state.data.status) ? 2000 : false) });
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['import', jobId] });

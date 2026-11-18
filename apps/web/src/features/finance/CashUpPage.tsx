@@ -3,6 +3,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { listOf, normCashUp } from '@/api/normalise';
 import { api } from '@/api/client';
 import type { CashUp, ListResponse, PaymentMethod } from '@/api/types';
 import { Can } from '@/auth/AuthContext';
@@ -86,7 +87,7 @@ function CloseForm({ cu }: { cu: CashUp }) {
 
 export default function CashUpPage() {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['cash-ups'], queryFn: () => api.get<ListResponse<CashUp>>('/cash-ups').then((r) => r.data) });
+  const query = useQuery({ queryKey: ['cash-ups'], queryFn: () => api.get<unknown>('/cash-ups').then((r) => listOf<Record<string, unknown>>(r).map(normCashUp)) });
   const open = useMutation({ mutationFn: () => api.post('/cash-ups'), onSuccess: () => void qc.invalidateQueries({ queryKey: ['cash-ups'] }) });
   return (
     <>

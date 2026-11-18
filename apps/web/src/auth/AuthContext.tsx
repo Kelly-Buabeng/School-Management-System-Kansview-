@@ -3,7 +3,15 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, ApiError, onUnauthorised, setCsrfToken } from '@/api/client';
 import type { LoginResponse, Me } from '@/api/types';
 
-type Status = 'loading' | 'anonymous' | 'mfa' | 'authenticated';
+type Status = 'loading' | 'anonymous' | 'mfa' | 'enrol' | 'authenticated';
+
+/** Server session phases (Agent D): mfa_pending → enter code; mfa_enrolment → set up an authenticator first. */
+function statusFor(m: Me): Status {
+  const phase = (m as Me & { sessionPhase?: string }).sessionPhase;
+  if (phase === 'mfa_pending') return 'mfa';
+  if (phase === 'mfa_enrolment') return 'enrol';
+  return 'authenticated';
+}
 
 interface AuthValue {
   status: Status;
@@ -16,6 +24,8 @@ interface AuthValue {
   canAny: (...permissions: string[]) => boolean;
   login: (username: string, password: string) => Promise<LoginResponse>;
   verifyMfa: (code: string) => Promise<Me>;
+  startMfaSetup: () => Promise<{ otpauthUri: string; secret: string }>;
+  enableMfa: (code: string) => Promise<string[]>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -32,7 +42,7 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
   const applyMe = useCallback((m: Me | null) => {
     setMe(m);
     setCsrfToken(m?.csrfToken);
-    setStatus(m ? 'authenticated' : 'anonymous');
+    setStatus(m ? statusFor(m) : 'anonymous');
   }, []);
 
   const refresh = useCallback(async () => {
@@ -67,8 +77,15 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
     async (username: string, password: string) => {
       const res = await api.post<LoginResponse>('/auth/login', { body: { username, password } });
       setSessionExpired(false);
-      if (res.mfaRequired) setStatus('mfa');
-      else if (res.user) applyMe(res.user as Me);
+      // The server issues a CSRF token with the half-signed-in session; the MFA step needs it.
+      if (res.user?.csrfToken) setCsrfToken(res.user.csrfToken);
+      if (res.mfaRequired) {
+        setMe((res.user as Me | undefined) ?? null);
+        setStatus('mfa');
+      } else if (res.mfaEnrolmentRequired) {
+        setMe((res.user as Me | undefined) ?? null);
+        setStatus('enrol');
+      } else if (res.user) applyMe(res.user as Me);
       else await refresh();
       return res;
     },
@@ -84,6 +101,16 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
     [applyMe],
   );
 
+  const startMfaSetup = useCallback(() => api.post<{ otpauthUri: string; secret: string }>('/auth/mfa/setup'), []);
+  const enableMfa = useCallback(
+    async (code: string) => {
+      const r = await api.post<{ recoveryCodes: string[]; user: Me }>('/auth/mfa/enable', { body: { code } });
+      applyMe(r.user);
+      return r.recoveryCodes;
+    },
+    [applyMe],
+  );
+
   const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout');
@@ -94,7 +121,7 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
   }, [applyMe, queryClient]);
 
   const value = useMemo<AuthValue>(() => {
-    const perms = new Set(me?.permissions ?? []);
+    const perms = new Set(status === 'authenticated' ? (me?.permissions ?? []) : []);
     return {
       status,
       me,
@@ -104,10 +131,12 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
       canAny: (...ps) => ps.some((p) => perms.has(p)),
       login,
       verifyMfa,
+      startMfaSetup,
+      enableMfa,
       logout,
       refresh,
     };
-  }, [status, me, sessionExpired, startupError, login, verifyMfa, logout, refresh]);
+  }, [status, me, sessionExpired, startupError, login, verifyMfa, startMfaSetup, enableMfa, logout, refresh]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

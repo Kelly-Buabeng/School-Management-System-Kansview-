@@ -5,6 +5,7 @@ import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { listOf, normAudit, normFeeItem } from '@/api/normalise';
 import { api, upload } from '@/api/client';
 import { useAcademicYears, useClasses } from '@/api/queries';
 import type { AuditEvent, FeeItem, GradingScale, ListResponse, MessageTemplate, Page, Policies, Role, SchoolProfile, StaffMember, Term, UserAccount } from '@/api/types';
@@ -20,7 +21,7 @@ const saved = () => notifications.show({ color: 'green', message: 'Saved.' });
 export function StaffPage() {
   const [params] = useSearchParams();
   const highlight = params.get('highlight');
-  const query = useQuery({ queryKey: ['staff'], queryFn: () => api.get<ListResponse<StaffMember>>('/staff').then((r) => r.data) });
+  const query = useQuery({ queryKey: ['staff'], queryFn: () => api.get<unknown>('/staff').then(listOf<StaffMember>) });
   const [reveal, setReveal] = useState<StaffMember | null>(null);
   const [reason, setReason] = useState('');
   const [revealed, setRevealed] = useState<Record<string, { ghanaCardNumber: string; ssnitNumber: string }>>({});
@@ -232,7 +233,7 @@ function ClassesTab() {
 
 function GradingTab() {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['grading'], queryFn: () => api.get<ListResponse<GradingScale>>('/grading-scales').then((r) => r.data) });
+  const query = useQuery({ queryKey: ['grading'], queryFn: () => api.get<unknown>('/grading-scales').then(listOf<GradingScale>) });
   const [gs, setGs] = useState<GradingScale | null>(null);
   useEffect(() => setGs(query.data?.[0] ?? null), [query.data]);
   const save = useMutation({ mutationFn: () => api.put('/grading-scales/{id}', { path: { id: gs!.id }, body: { classWeightPercent: gs!.classWeightPercent, examWeightPercent: gs!.examWeightPercent, bands: gs!.bands } }), onSuccess: () => { saved(); void qc.invalidateQueries({ queryKey: ['grading'] }); } });
@@ -277,7 +278,7 @@ function GradingTab() {
 
 function FeeItemsTab() {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['fee-items'], queryFn: () => api.get<ListResponse<FeeItem>>('/fee-items').then((r) => r.data) });
+  const query = useQuery({ queryKey: ['fee-items'], queryFn: () => api.get<unknown>('/fee-items').then((r) => listOf<Record<string, unknown>>(r).map(normFeeItem)) });
   const [name, setName] = useState('');
   const [optional, setOptional] = useState(false);
   const add = useMutation({ mutationFn: () => api.post('/fee-items', { body: { name, optional, category: 'other' } }), onSuccess: () => { setName(''); void qc.invalidateQueries({ queryKey: ['fee-items'] }); } });
@@ -330,7 +331,7 @@ function TemplateRow({ t }: { t: MessageTemplate }) {
 }
 
 function TemplatesTab() {
-  const query = useQuery({ queryKey: ['templates'], queryFn: () => api.get<ListResponse<MessageTemplate>>('/message-templates').then((r) => r.data) });
+  const query = useQuery({ queryKey: ['templates'], queryFn: () => api.get<unknown>('/message-templates').then(listOf<MessageTemplate>) });
   return (
     <Stack maw={720}>
       <Text size="sm">Allowed placeholders: {'{guardian_name}'}, {'{student_name}'}, {'{balance}'}, {'{due_date}'}, {'{date}'}, {'{time}'}, {'{reason}'}</Text>
@@ -403,7 +404,7 @@ const ROLES = Object.keys(ROLE_LABELS) as Role[];
 
 export function UsersPage() {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['users'], queryFn: () => api.get<Page<UserAccount>>('/users', { query: { pageSize: 100 } }).then((r) => r.data) });
+  const query = useQuery({ queryKey: ['users'], queryFn: () => api.get<unknown>('/users', { query: { pageSize: 100 } }).then(listOf<UserAccount>) });
   const [creating, setCreating] = useState(false);
   const [nu, setNu] = useState({ username: '', fullName: '', roles: [] as Role[] });
   const [temp, setTemp] = useState<string | null>(null);
@@ -522,7 +523,7 @@ export function AuditPage() {
   const [q, setQ] = useState('');
   const [debounced] = useDebouncedValue(q, 300);
   const [page, setPage] = useState(1);
-  const query = useQuery({ queryKey: ['audit', action, debounced, page], queryFn: () => api.get<Page<AuditEvent>>('/audit-events', { query: { action, q: debounced, page, pageSize: 50 } }), placeholderData: keepPreviousData });
+  const query = useQuery({ queryKey: ['audit', action, debounced, page], queryFn: () => api.get<Page<Record<string, unknown>>>('/audit-events', { query: { action, q: debounced, page, pageSize: 50 } }).then((p): Page<AuditEvent> => ({ ...p, data: listOf<Record<string, unknown>>(p).map(normAudit) })), placeholderData: keepPreviousData });
   const verify = useMutation({ mutationFn: () => api.post<{ intact: boolean; firstBrokenEventId?: string }>('/audit-events/verify'), onError: (e) => notifications.show(notifyError(e)) });
   return (
     <>

@@ -4,6 +4,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { listOf, normWithdrawal } from '@/api/normalise';
 import { api, downloadFile } from '@/api/client';
 import type { ClearanceItem, ListResponse, Withdrawal } from '@/api/types';
 import { Can, useAuth } from '@/auth/AuthContext';
@@ -123,7 +124,7 @@ function StartForm() {
 }
 
 export default function WithdrawalsPage() {
-  const query = useQuery({ queryKey: ['withdrawals'], queryFn: () => api.get<ListResponse<Withdrawal>>('/withdrawals').then((r) => r.data) });
+  const query = useQuery({ queryKey: ['withdrawals'], queryFn: () => api.get<unknown>('/withdrawals').then((r) => listOf<Record<string, unknown>>(r).map(normWithdrawal)) });
   return (
     <>
       <PageHeader title="Withdrawals and transfers" subtitle="Every item must be cleared before a student is taken off the roll." />

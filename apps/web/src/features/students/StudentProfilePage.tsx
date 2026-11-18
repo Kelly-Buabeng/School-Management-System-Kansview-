@@ -3,6 +3,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { listOf, normGuardianLinks } from '@/api/normalise';
 import { api, upload } from '@/api/client';
 import type { AttendanceSummaryRow, Enrolment, Incident, ListResponse, Payment, Page, Student, StudentDocument, StudentGuardianLink, StudentMedical, StudentSummary } from '@/api/types';
 import { Can, useAuth } from '@/auth/AuthContext';
@@ -135,8 +136,8 @@ function Overview({ s }: { s: Student }) {
 }
 
 function Family({ id }: { id: string }) {
-  const guardians = useQuery({ queryKey: ['student', id, 'guardians'], queryFn: () => api.get<ListResponse<StudentGuardianLink>>('/students/{id}/guardians', { path: { id } }).then((r) => r.data) });
-  const siblings = useQuery({ queryKey: ['student', id, 'siblings'], queryFn: () => api.get<ListResponse<StudentSummary>>('/students/{id}/siblings', { path: { id } }).then((r) => r.data) });
+  const guardians = useQuery({ queryKey: ['student', id, 'guardians'], queryFn: () => api.get<unknown>('/students/{id}/guardians', { path: { id } }).then(normGuardianLinks) });
+  const siblings = useQuery({ queryKey: ['student', id, 'siblings'], queryFn: () => api.get<unknown>('/students/{id}/siblings', { path: { id } }).then(listOf<StudentSummary>) });
   return (
     <Stack>
       <Title order={2} size="h4">
@@ -229,7 +230,7 @@ const DOC_LABELS: Record<string, string> = { birth_certificate: 'Birth certifica
 
 function Documents({ id }: { id: string }) {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['student', id, 'documents'], queryFn: () => api.get<ListResponse<StudentDocument>>('/students/{id}/documents', { path: { id } }).then((r) => r.data) });
+  const query = useQuery({ queryKey: ['student', id, 'documents'], queryFn: () => api.get<unknown>('/students/{id}/documents', { path: { id } }).then(listOf<StudentDocument>) });
   const [file, setFile] = useState<File | null>(null);
   const [docType, setDocType] = useState<string | null>('birth_certificate');
   const up = useMutation({
@@ -284,7 +285,7 @@ function Documents({ id }: { id: string }) {
 }
 
 function Enrolments({ id }: { id: string }) {
-  const query = useQuery({ queryKey: ['student', id, 'enrolments'], queryFn: () => api.get<ListResponse<Enrolment>>('/students/{id}/enrolments', { path: { id } }).then((r) => r.data) });
+  const query = useQuery({ queryKey: ['student', id, 'enrolments'], queryFn: () => api.get<unknown>('/students/{id}/enrolments', { path: { id } }).then(listOf<Enrolment>) });
   return (
     <QueryState query={query}>
       {(list) => (
@@ -370,7 +371,7 @@ function Finance({ id }: { id: string }) {
 function Attendance({ classId }: { classId?: string }) {
   const query = useQuery({
     queryKey: ['attendance-summary', classId],
-    queryFn: () => api.get<ListResponse<AttendanceSummaryRow>>('/attendance/summary', { query: { classId } }).then((r) => r.data),
+    queryFn: () => api.get<unknown>('/attendance/summary', { query: { classId } }).then(listOf<AttendanceSummaryRow>),
     enabled: Boolean(classId),
   });
   if (!classId) return <EmptyState>Not in a class.</EmptyState>;
@@ -394,7 +395,7 @@ function Attendance({ classId }: { classId?: string }) {
 
 function Incidents({ id }: { id: string }) {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['student', id, 'incidents'], queryFn: () => api.get<ListResponse<Incident>>('/students/{id}/incidents', { path: { id } }).then((r) => r.data) });
+  const query = useQuery({ queryKey: ['student', id, 'incidents'], queryFn: () => api.get<unknown>('/students/{id}/incidents', { path: { id } }).then(listOf<Incident>) });
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('General');
   const add = useMutation({

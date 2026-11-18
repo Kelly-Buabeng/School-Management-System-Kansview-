@@ -1,3 +1,4 @@
+import { normDashboard } from '@/api/normalise';
 import { Button, Card, Group, Progress, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -51,7 +52,7 @@ function TrendLine({ points }: { points: { date: string; ratePercent: number }[]
 
 export default function DashboardPage() {
   const { me } = useAuth();
-  const query = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<DashboardData>('/dashboard') });
+  const query = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<Record<string, unknown>>('/dashboard').then(normDashboard) });
   return (
     <>
       <PageHeader

@@ -1,6 +1,7 @@
 import { Anchor, Avatar, Badge, Button, Card, Group, Progress, SimpleGrid, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
+import { listOf } from '@/api/normalise';
 import { api } from '@/api/client';
 import { useClasses } from '@/api/queries';
 import type { ClassInfo, ClassStudent, ListResponse } from '@/api/types';
@@ -53,7 +54,7 @@ export function ClassListPage() {
 export function ClassRollPage() {
   const { id = '' } = useParams();
   const cls = useQuery({ queryKey: ['class', id], queryFn: () => api.get<ClassInfo>('/classes/{id}', { path: { id } }) });
-  const roll = useQuery({ queryKey: ['class', id, 'students'], queryFn: () => api.get<ListResponse<ClassStudent>>('/classes/{id}/students', { path: { id } }).then((r) => r.data) });
+  const roll = useQuery({ queryKey: ['class', id, 'students'], queryFn: () => api.get<unknown>('/classes/{id}/students', { path: { id } }).then(listOf<ClassStudent>) });
   return (
     <QueryState query={cls}>
       {(c) => (

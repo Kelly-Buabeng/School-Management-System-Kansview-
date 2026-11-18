@@ -3,6 +3,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { listOf } from '@/api/normalise';
 import { api, downloadFile } from '@/api/client';
 import { classOptions, useClasses, useCurrentTerm } from '@/api/queries';
 import type { ListResponse, ReportCard } from '@/api/types';
@@ -43,7 +44,7 @@ export default function ReportCardsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const cid = classId ?? classes.data?.find((c) => c.name === 'Basic 2')?.id ?? classes.data?.[0]?.id ?? null;
   const tid = termId ?? term?.id ?? null;
-  const query = useQuery({ queryKey: ['report-cards', tid, cid], queryFn: () => api.get<ListResponse<ReportCard>>('/report-cards', { query: { termId: tid, classId: cid } }).then((r) => r.data), enabled: Boolean(tid) });
+  const query = useQuery({ queryKey: ['report-cards', tid, cid], queryFn: () => api.get<unknown>('/report-cards', { query: { termId: tid, classId: cid } }).then(listOf<ReportCard>), enabled: Boolean(tid) });
   const publish = useMutation({
     mutationFn: () => api.post<{ published: number }>('/report-cards/publish', { body: { ids: selected } }),
     onSuccess: (r) => {

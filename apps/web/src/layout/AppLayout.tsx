@@ -27,7 +27,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (status === 'loading') return <PageLoader />;
   if (status !== 'authenticated') {
     const next = encodeURIComponent(location.pathname + location.search);
-    return <Navigate to={status === 'mfa' ? `/mfa?next=${next}` : `/login?next=${next}`} replace />;
+    return <Navigate to={status === 'mfa' ? `/mfa?next=${next}` : status === 'enrol' ? `/mfa/setup?next=${next}` : `/login?next=${next}`} replace />;
   }
   if (me?.mustChangePassword && location.pathname !== '/change-password') return <Navigate to={`/change-password?next=${encodeURIComponent(location.pathname)}`} replace />;
   return (
@@ -138,6 +138,28 @@ export function NotFoundPage() {
         <Button component={Link} to="/">
           Go to the dashboard
         </Button>
+      </div>
+    </Center>
+  );
+}
+
+/** Shown instead of a blank page if a screen crashes. */
+export function RouteError() {
+  return (
+    <Center py="xl" px="md">
+      <div>
+        <Text fw={700} size="lg">
+          Something went wrong on this page
+        </Text>
+        <Text c="dimmed" mb="sm">
+          Nothing you saved before is lost. Reload the page; if it happens again, tell the administrator what you were doing.
+        </Text>
+        <Group>
+          <Button onClick={() => window.location.reload()}>Reload</Button>
+          <Button variant="default" component="a" href="/">
+            Go to the dashboard
+          </Button>
+        </Group>
       </div>
     </Center>
   );

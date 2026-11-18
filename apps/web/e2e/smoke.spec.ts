@@ -40,6 +40,7 @@ test('bursar records a payment and sees the receipt', async ({ page }) => {
   await page.getByRole('option', { name: /Kwame Agyei Mensah/ }).click();
   await page.getByLabel(/Amount received/).fill('120.50');
   await expect(page.getByText('What does this payment cover?')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: /Paid by/ })).toHaveValue(/Owusu/); // fee payer chosen by default
   await page.getByRole('button', { name: 'Save payment' }).click();
   await expect(page.getByRole('heading', { name: /Receipt RCP-\d{6}/ })).toBeVisible();
   await expect(page.getByText('The server confirmed this payment')).toBeVisible();

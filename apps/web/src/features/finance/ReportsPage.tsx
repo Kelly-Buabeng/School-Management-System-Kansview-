@@ -24,7 +24,15 @@ export default function ReportsPage() {
   const [to, setTo] = useState(todayInAccra());
   const params: Record<string, string> =
     report === 'collections' ? { groupBy, from, to } : report === 'daily-cash-up' ? { date: to } : report === 'reconciliation' ? { from, to } : {};
-  const query = useQuery({ queryKey: ['report', report, params], queryFn: () => api.get<ReportResult>(REPORTS[report].path, { query: { ...params, format: 'json' } }) });
+  const query = useQuery({
+    queryKey: ['report', report, params],
+    queryFn: () =>
+      api.get<ReportResult>(REPORTS[report].path, { query: { ...params, format: 'json' } }).then((r) => ({
+        ...r,
+        // Money columns: flagged by the frontend mock (`money`) or by the API (`type: 'money'` / key ending in Pesewas).
+        columns: r.columns.map((c) => ({ ...c, money: c.money || (c as { type?: string }).type === 'money' || c.key.endsWith('Pesewas') })),
+      })),
+  });
   const exp = useMutation({
     mutationFn: (format: 'xlsx' | 'pdf') => downloadFile(REPORTS[report].path, {}, { ...params, format }, `${report}-${to}.${format}`),
     onError: (e) => notifications.show(notifyError(e)),

@@ -3,6 +3,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { listOf, normFeeItem } from '@/api/normalise';
 import { api } from '@/api/client';
 import { useCurrentTerm, useLevels } from '@/api/queries';
 import type { FeeItem, FeeStructure, ListResponse } from '@/api/types';
@@ -10,6 +11,13 @@ import { Can, useAuth } from '@/auth/AuthContext';
 import { notifyError, ProblemAlert } from '@/components/ProblemAlert';
 import { EmptyState, Money, PageHeader, QueryState, StatusBadge } from '@/components/ui';
 import { formatCedis, tryParseCedis } from '@/lib/format';
+
+/** The list may come without lines; load the full structure when needed. */
+function StructureLoader({ fs, items }: { fs: FeeStructure; items: FeeItem[] }) {
+  const detail = useQuery({ queryKey: ['fee-structure', fs.id], queryFn: () => api.get<FeeStructure>('/fee-structures/{id}', { path: { id: fs.id } }), enabled: !fs.lines });
+  if (fs.lines) return <StructureEditor fs={fs} items={items} />;
+  return <QueryState query={detail}>{(full) => <StructureEditor fs={{ ...fs, ...full, lines: full.lines ?? [] }} items={items} />}</QueryState>;
+}
 
 function StructureEditor({ fs, items }: { fs: FeeStructure; items: FeeItem[] }) {
   const qc = useQueryClient();
@@ -29,6 +37,7 @@ function StructureEditor({ fs, items }: { fs: FeeStructure; items: FeeItem[] }) 
     onSuccess: () => {
       notifications.show({ color: 'green', message: 'Fee structure saved.' });
       void qc.invalidateQueries({ queryKey: ['fee-structures'] });
+      void qc.invalidateQueries({ queryKey: ['fee-structure', fs.id] });
     },
   });
   const activate = useMutation({
@@ -108,8 +117,8 @@ export default function FeesPage() {
   const tid = termId ?? term?.id ?? null;
   const levels = useLevels();
   const qc = useQueryClient();
-  const items = useQuery({ queryKey: ['fee-items'], queryFn: () => api.get<ListResponse<FeeItem>>('/fee-items').then((r) => r.data) });
-  const structures = useQuery({ queryKey: ['fee-structures', tid], queryFn: () => api.get<ListResponse<FeeStructure>>('/fee-structures', { query: { termId: tid } }).then((r) => r.data), enabled: Boolean(tid) });
+  const items = useQuery({ queryKey: ['fee-items'], queryFn: () => api.get<unknown>('/fee-items').then((r) => listOf<Record<string, unknown>>(r).map(normFeeItem)) });
+  const structures = useQuery({ queryKey: ['fee-structures', tid], queryFn: () => api.get<unknown>('/fee-structures', { query: { termId: tid } }).then(listOf<FeeStructure>), enabled: Boolean(tid) });
   const [newLevel, setNewLevel] = useState<string | null>(null);
   const create = useMutation({
     mutationFn: () => api.post('/fee-structures', { body: { termId: tid, levelId: newLevel } }),
@@ -139,7 +148,7 @@ export default function FeesPage() {
                       </Group>
                     </Group>
                   </Accordion.Control>
-                  <Accordion.Panel>{items.data && <StructureEditor fs={fs} items={items.data} />}</Accordion.Panel>
+                  <Accordion.Panel>{items.data && <StructureLoader fs={fs} items={items.data} />}</Accordion.Panel>
                 </Accordion.Item>
               ))}
             </Accordion>

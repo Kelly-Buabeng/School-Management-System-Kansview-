@@ -39,7 +39,7 @@ export function DuplicateDialog({
                   {c.guardianPhone ? ` · Parent ${displayPhone(c.guardianPhone)}` : ''}
                 </Text>
                 <Text size="xs" c="dimmed">
-                  Matches: {c.matchReasons.join(', ')}
+                  Matches: {(c.matchReasons ?? ["Similar name and date of birth"]).join(', ')}
                 </Text>
               </div>
               <Anchor href={`/students/${c.id}`} target="_blank" rel="noopener">

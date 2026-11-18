@@ -2,10 +2,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Alert, Anchor, Button, Card, FileInput, Group, SegmentedControl, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { Link } from 'react-router';
 import { z } from 'zod';
+import { listOf, normGuardianLinks } from '@/api/normalise';
 import { api, ApiError, NetworkError, upload } from '@/api/client';
 import type { Invoice, ListResponse, Page, Payment, PaymentDuplicateMatch, PaymentMethod, RecordPaymentRequest, StudentGuardianLink } from '@/api/types';
 import { ProblemAlert } from '@/components/ProblemAlert';
@@ -29,6 +30,7 @@ const schema = z
     notes: z.string().trim().max(500).optional(),
   })
   .superRefine((v, ctx) => {
+    if (!v.payer || (v.payer === 'other' && !v.payerName)) ctx.addIssue({ code: 'custom', path: [v.payer === 'other' ? 'payerName' : 'payer'], message: 'Say who paid (choose a parent or type a name)' });
     if (v.method !== 'cash' && !v.referenceNo) ctx.addIssue({ code: 'custom', path: ['referenceNo'], message: 'Enter the reference number (needed for everything except cash)' });
   });
 type Values = z.infer<typeof schema>;
@@ -79,7 +81,7 @@ export function PaymentForm({ initialStudentId, onSaved }: { initialStudentId?: 
   const [debouncedRef] = useDebouncedValue((reference ?? '').trim(), 400);
   const dupCheck = useQuery({
     queryKey: ['payment-dup', method, debouncedRef],
-    queryFn: ({ signal }) => api.get<ListResponse<PaymentDuplicateMatch>>('/payments/duplicate-check', { query: { method, referenceNo: debouncedRef }, signal }).then((r) => r.data),
+    queryFn: ({ signal }) => api.get<unknown>('/payments/duplicate-check', { query: { method, referenceNo: debouncedRef }, signal }).then(listOf<PaymentDuplicateMatch>),
     enabled: method !== 'cash' && debouncedRef.length >= 4,
     staleTime: 5_000,
   });
@@ -88,12 +90,26 @@ export function PaymentForm({ initialStudentId, onSaved }: { initialStudentId?: 
   // ----- student context: guardians (payer) and open invoice lines -----
   const guardians = useQuery({
     queryKey: ['student', studentId, 'guardians'],
-    queryFn: () => api.get<ListResponse<StudentGuardianLink>>('/students/{id}/guardians', { path: { id: studentId } }).then((r) => r.data),
+    queryFn: () => api.get<unknown>('/students/{id}/guardians', { path: { id: studentId } }).then(normGuardianLinks),
     enabled: Boolean(studentId),
   });
+  useEffect(() => {
+    if (!form.getValues('payer') && guardians.data?.length) {
+      const g = guardians.data.find((x) => x.isFeePayer) ?? guardians.data.find((x) => x.isPrimary) ?? guardians.data[0]!;
+      form.setValue('payer', g.guardian.id!);
+    }
+  }, [guardians.data, form]);
   const invoices = useQuery({
     queryKey: ['invoices', { studentId }],
-    queryFn: () => api.get<Page<Invoice>>('/invoices', { query: { studentId, pageSize: 50 } }).then((r) => r.data),
+    queryFn: async () => {
+      const list = await api.get<unknown>('/invoices', { query: { studentId, pageSize: 50 } }).then(listOf<Invoice>);
+      // The list may come without lines; fetch details for invoices that still have something owing.
+      return Promise.all(
+        list.map((i) =>
+          i.lines || i.status !== 'issued' || (i.totalPesewas ?? 0) <= (i.paidPesewas ?? 0) ? i : api.get<Invoice>('/invoices/{id}', { path: { id: i.id! } }),
+        ),
+      );
+    },
     enabled: Boolean(studentId),
   });
   const openLines: OpenLine[] = useMemo(
@@ -207,6 +223,8 @@ export function PaymentForm({ initialStudentId, onSaved }: { initialStudentId?: 
               render={({ field }) => (
                 <Select
                   label="Paid by"
+                  withAsterisk
+                  error={errors.payer?.message}
                   placeholder="Choose a parent or type a name below"
                   data={[...(guardians.data ?? []).map((g) => ({ value: g.guardian.id!, label: `${g.guardian.fullName} (${g.relationship})` })), { value: 'other', label: 'Someone else' }]}
                   value={field.value || null}
@@ -216,7 +234,7 @@ export function PaymentForm({ initialStudentId, onSaved }: { initialStudentId?: 
                 />
               )}
             />
-            {watch('payer') === 'other' && <TextInput label="Payer's name" {...register('payerName')} disabled={locked} />}
+            {watch('payer') === 'other' && <TextInput label="Payer's name" withAsterisk {...register('payerName')} error={errors.payerName?.message} disabled={locked} />}
             <Textarea label="Notes (optional)" {...register('notes')} autosize minRows={1} disabled={locked} />
             <FileInput label="Evidence (optional)" description="MoMo screenshot or bank slip: image or PDF, up to 5 MB" accept="image/png,image/jpeg,application/pdf" value={evidence} onChange={setEvidence} clearable disabled={locked} />
           </SimpleGrid>

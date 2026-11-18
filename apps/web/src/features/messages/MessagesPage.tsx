@@ -3,6 +3,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { listOf } from '@/api/normalise';
 import { api } from '@/api/client';
 import { classOptions, useClasses, useLevels } from '@/api/queries';
 import type { ListResponse, MessagePreview, MessageRecipient, MessageSummary, MessageTemplate, SendMessageRequest } from '@/api/types';
@@ -33,7 +34,7 @@ function Compose() {
   const { can } = useAuth();
   const classes = useClasses();
   const levels = useLevels();
-  const templates = useQuery({ queryKey: ['templates'], queryFn: () => api.get<ListResponse<MessageTemplate>>('/message-templates').then((r) => r.data) });
+  const templates = useQuery({ queryKey: ['templates'], queryFn: () => api.get<unknown>('/message-templates').then(listOf<MessageTemplate>) });
   const [kind, setKind] = useState<SendMessageRequest['kind']>('announcement');
   const [audience, setAudience] = useState<'school' | 'class' | 'level' | 'defaulters'>('class');
   const [ids, setIds] = useState<string[]>([]);
@@ -125,7 +126,7 @@ function Compose() {
 
 function DeliveryLog({ m, onClose }: { m: MessageSummary; onClose: () => void }) {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['message', m.id, 'recipients'], queryFn: () => api.get<ListResponse<MessageRecipient>>('/messages/{id}/recipients', { path: { id: m.id } }).then((r) => r.data) });
+  const query = useQuery({ queryKey: ['message', m.id, 'recipients'], queryFn: () => api.get<unknown>('/messages/{id}/recipients', { path: { id: m.id } }).then(listOf<MessageRecipient>) });
   const retry = useMutation({ mutationFn: () => api.post('/messages/{id}/retry-failed', { path: { id: m.id } }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['message', m.id] }) });
   return (
     <Modal opened onClose={onClose} title="Delivery log" size="lg">
@@ -168,7 +169,7 @@ function Log() {
   const qc = useQueryClient();
   const { me } = useAuth();
   const [open, setOpen] = useState<MessageSummary | null>(null);
-  const query = useQuery({ queryKey: ['messages'], queryFn: () => api.get<ListResponse<MessageSummary>>('/messages').then((r) => r.data) });
+  const query = useQuery({ queryKey: ['messages'], queryFn: () => api.get<unknown>('/messages').then(listOf<MessageSummary>) });
   const approve = useMutation({ mutationFn: (id: string) => api.post('/messages/{id}/approve', { path: { id } }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['messages'] }), onError: (e) => notifications.show(notifyError(e)) });
   return (
     <QueryState query={query}>

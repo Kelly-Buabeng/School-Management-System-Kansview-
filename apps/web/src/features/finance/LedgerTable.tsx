@@ -1,3 +1,4 @@
+import { listOf, normLedgerEntry } from '@/api/normalise';
 import { Group, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
@@ -7,7 +8,7 @@ import { formatDate } from '@/lib/format';
 
 /** Student ledger with running balance (positive = owes, negative = credit). */
 export function LedgerTable({ studentId }: { studentId: string }) {
-  const query = useQuery({ queryKey: ['ledger', studentId], queryFn: () => api.get<Ledger>('/students/{id}/ledger', { path: { id: studentId } }) });
+  const query = useQuery({ queryKey: ['ledger', studentId], queryFn: () => api.get<Ledger>('/students/{id}/ledger', { path: { id: studentId } }).then((l) => ({ ...l, entries: listOf<Record<string, unknown>>(l.entries).map(normLedgerEntry) })) });
   return (
     <QueryState query={query} label="Loading account…">
       {(l) =>

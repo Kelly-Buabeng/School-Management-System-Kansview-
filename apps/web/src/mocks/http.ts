@@ -57,6 +57,7 @@ export function meOf(user: MUser) {
     csrfToken: session?.csrf ?? '',
     mfaEnabled: user.mfaEnabled,
     mustChangePassword: user.mustChangePassword,
+    sessionPhase: session?.stage === 'mfa_pending' ? 'mfa_pending' : 'full',
   };
 }
 

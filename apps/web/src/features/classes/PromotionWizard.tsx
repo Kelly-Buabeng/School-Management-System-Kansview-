@@ -2,6 +2,7 @@ import { Alert, Badge, Button, Card, Checkbox, Group, Modal, Select, SimpleGrid,
 import { modals } from '@mantine/modals';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { listOf } from '@/api/normalise';
 import { api } from '@/api/client';
 import { useAcademicYears, useClasses } from '@/api/queries';
 import type { ListResponse, PromotionAction, PromotionItem, PromotionRun } from '@/api/types';
@@ -142,7 +143,7 @@ export default function PromotionWizard() {
   const [commitKey] = useState(() => newIdempotencyKey('promo'));
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const onDirty = useCallback((id: string, d: boolean) => setDirty((s) => (s.has(id) === d ? s : new Set([...s].filter((x) => x !== id).concat(d ? [id] : [])))), []);
-  const runs = useQuery({ queryKey: ['promotion-runs'], queryFn: () => api.get<ListResponse<PromotionRun>>('/promotion-runs').then((r) => r.data) });
+  const runs = useQuery({ queryKey: ['promotion-runs'], queryFn: () => api.get<unknown>('/promotion-runs').then(listOf<PromotionRun>) });
   const run = useQuery({ queryKey: ['promotion-run', runId], queryFn: () => api.get<PromotionRun>('/promotion-runs/{id}', { path: { id: runId! } }), enabled: Boolean(runId) });
 
   const create = useMutation({
@@ -219,7 +220,7 @@ export default function PromotionWizard() {
                   {runs.data!.map((x) => (
                     <Table.Tr key={x.id}>
                       <Table.Td>{formatDateTime(x.createdAt)}</Table.Td>
-                      <Table.Td>{x.items.length} students</Table.Td>
+                      <Table.Td>{x.items?.length ?? (x as { itemCount?: number }).itemCount ?? 0} students</Table.Td>
                       <Table.Td>
                         <StatusBadge status={x.status} />
                       </Table.Td>
