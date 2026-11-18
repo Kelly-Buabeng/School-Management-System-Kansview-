@@ -1,13 +1,15 @@
-import { AppShell, Burger, Button, Center, Group, Loader, Menu, NavLink, ScrollArea, Text, UnstyledButton } from '@mantine/core';
+import './shell.css';
+import { Button, Center, Drawer, Group, Loader, Modal, Popover, Stack, Text } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useMemo, type ReactNode } from 'react';
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
-import { API_MODE } from '@/api/client';
+import { api, API_MODE } from '@/api/client';
+import { listOf } from '@/api/normalise';
 import { useAuth } from '@/auth/AuthContext';
 import { ROLE_LABELS, type Role } from '@/auth/permissions';
-import { initials } from '@/lib/format';
 import { GlobalSearch } from './GlobalSearch';
-import { visibleNav, type NavItem } from './nav';
+import { phoneTabs, titleFor, visibleNav, type NavItem } from './nav';
 import { OfflineBanner } from './OfflineBanner';
 
 const MockPanel = lazy(() => import('./MockPanel'));
@@ -42,86 +44,199 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   );
 }
 
+interface AlertItem {
+  label: string;
+  to: string;
+  count: number;
+}
+
+/** "Alerts · n": things waiting for this user (only what their role can act on). */
+function useAlerts(): AlertItem[] {
+  const { can } = useAuth();
+  const adj = useQuery({
+    queryKey: ['alerts', 'adjustments'],
+    queryFn: () => api.get<unknown>('/adjustments', { query: { status: 'pending' } }).then((r) => listOf(r).length),
+    enabled: can('adjustments:approve'),
+    staleTime: 60_000,
+  });
+  const msgs = useQuery({
+    queryKey: ['alerts', 'messages'],
+    queryFn: () => api.get<unknown>('/messages').then((r) => listOf<{ status?: string }>(r).filter((m) => m.status === 'awaiting_approval').length),
+    enabled: can('messages:bulk_approve'),
+    staleTime: 60_000,
+  });
+  const wd = useQuery({
+    queryKey: ['alerts', 'withdrawals'],
+    queryFn: () => api.get<unknown>('/withdrawals').then((r) => listOf<{ status?: string }>(r).filter((w) => w.status === 'pending_clearance' || w.status === 'pending').length),
+    enabled: can('withdrawals:update'),
+    staleTime: 60_000,
+  });
+  return [
+    { label: 'Discounts waiting for approval', to: '/finance/adjustments', count: adj.data ?? 0 },
+    { label: 'Bulk messages waiting for approval', to: '/messages', count: msgs.data ?? 0 },
+    { label: 'Withdrawals waiting for clearance', to: '/withdrawals', count: wd.data ?? 0 },
+  ].filter((a) => a.count > 0);
+}
+
+function AlertsButton({ phone }: { phone?: boolean }) {
+  const alerts = useAlerts();
+  const total = alerts.reduce((a, x) => a + x.count, 0);
+  return (
+    <Popover position="bottom-end" withArrow shadow="md" width={280}>
+      <Popover.Target>
+        {phone ? (
+          <button type="button" className="k-round" aria-label={`Alerts: ${total}`}>
+            {total}
+          </button>
+        ) : (
+          <Button variant="default" size="md" aria-label={`Alerts: ${total}`}>
+            Alerts · {total}
+          </Button>
+        )}
+      </Popover.Target>
+      <Popover.Dropdown>
+        {alerts.length === 0 ? (
+          <Text size="sm">Nothing is waiting for you.</Text>
+        ) : (
+          <Stack gap={4}>
+            {alerts.map((a) => (
+              <Text key={a.to} component={Link} to={a.to} size="sm" c="navy.7">
+                {a.label} · <b>{a.count}</b>
+              </Text>
+            ))}
+          </Stack>
+        )}
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
+function isActive(items: NavItem[], pathname: string, to: string) {
+  if (to === '/') return pathname === '/';
+  if (!(pathname === to || pathname.startsWith(`${to}/`))) return false;
+  // A longer matching item wins (e.g. "Record payment" over "Receipts").
+  return !items.some((i) => i.to !== to && i.to.length > to.length && (pathname === i.to || pathname.startsWith(`${i.to}/`)));
+}
+
 export function AppLayout() {
-  const { me, logout } = useAuth();
-  const [opened, { toggle, close }] = useDisclosure();
+  const { me, logout, can } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [moreOpen, more] = useDisclosure();
+  const [findOpen, find] = useDisclosure();
   const items = useMemo(() => visibleNav(me?.permissions ?? []), [me]);
+  const tabs = useMemo(() => phoneTabs(me?.permissions ?? []), [me]);
   const groups = useMemo(() => {
     const m = new Map<string, NavItem[]>();
     for (const i of items) m.set(i.group, [...(m.get(i.group) ?? []), i]);
     return [...m.entries()];
   }, [items]);
-  const isActive = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname === to || (location.pathname.startsWith(`${to}/`) && !items.some((i) => i.to !== to && i.to.startsWith(to) && location.pathname.startsWith(i.to))));
+  const roles = (me?.roles ?? []).map((r) => ROLE_LABELS[r as Role] ?? r).join(', ');
+  const tabActive = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname === to || location.pathname.startsWith(`${to}/`));
+  const navLinks = (onClick?: () => void) =>
+    groups.map(([group, list]) => (
+      <div key={group}>
+        {group !== 'Main' && <div className="k-nav-group">{group}</div>}
+        {list.map((i) => (
+          <Link key={i.to} to={i.to} onClick={onClick} aria-current={isActive(items, location.pathname, i.to) ? 'page' : undefined}>
+            {i.label}
+          </Link>
+        ))}
+      </div>
+    ));
 
   return (
-    <AppShell header={{ height: 60 }} navbar={{ width: 240, breakpoint: 'md', collapsed: { mobile: !opened } }} padding="md">
+    <>
       <a href="#main" className="skip-link">
         Skip to main content
       </a>
-      <AppShell.Header zIndex={250}>
-        <Group h="100%" px="sm" gap="sm" wrap="nowrap">
-          <Burger opened={opened} onClick={toggle} hiddenFrom="md" size="sm" aria-label={opened ? 'Close menu' : 'Open menu'} />
-          <Text component={Link} to="/" fw={800} c="blue.8" visibleFrom="sm" style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}>
-            Kansview
-          </Text>
-          <GlobalSearch />
-          <Menu position="bottom-end" withinPortal>
-            <Menu.Target>
-              <UnstyledButton aria-label="Account menu" ml="auto" style={{ flexShrink: 0 }}>
-                <Group gap={6} wrap="nowrap">
-                  <Center w={34} h={34} bg="blue.8" c="white" style={{ borderRadius: '50%', fontWeight: 700, fontSize: 13 }}>
-                    {initials(me?.fullName ?? '?')}
-                  </Center>
-                  <div style={{ lineHeight: 1.1 }}>
-                    <Text size="sm" fw={600} visibleFrom="sm">
-                      {me?.fullName}
-                    </Text>
-                    <Text size="xs" c="dimmed" visibleFrom="sm">
-                      {(me?.roles ?? []).map((r) => ROLE_LABELS[r as Role] ?? r).join(', ')}
-                    </Text>
-                  </div>
-                </Group>
-              </UnstyledButton>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Label>{me?.fullName}</Menu.Label>
-              <Menu.Item onClick={() => navigate('/change-password')}>Change password</Menu.Item>
-              <Menu.Item color="red" onClick={() => void logout()}>
-                Sign out
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-        </Group>
-      </AppShell.Header>
-      <AppShell.Navbar p="xs" aria-label="Main menu">
-        <ScrollArea type="auto">
+      <aside className="k-sidebar">
+        <Link to="/" className="k-wordmark">
+          Kansview
+        </Link>
+        <nav className="k-nav" aria-label="Main menu">
+          {navLinks()}
+        </nav>
+        <div className="k-user">
           <div>
-            {groups.map(([group, list]) => (
-              <div key={group}>
-                {group !== 'Main' && (
-                  <Text size="xs" fw={700} c="dimmed" tt="uppercase" px="sm" mt="sm" mb={2}>
-                    {group}
-                  </Text>
-                )}
-                {list.map((i) => (
-                  <NavLink key={i.to} component={Link} to={i.to} label={i.label} active={isActive(i.to)} onClick={close} aria-current={isActive(i.to) ? 'page' : undefined} />
-                ))}
-              </div>
-            ))}
+            {me?.fullName} · {roles}
           </div>
-        </ScrollArea>
-      </AppShell.Navbar>
-      <AppShell.Main id="main" tabIndex={-1}>
-        <div style={{ margin: 'calc(-1 * var(--mantine-spacing-md)) calc(-1 * var(--mantine-spacing-md)) var(--mantine-spacing-md)' }}>
-          <OfflineBanner />
+          <button type="button" onClick={() => navigate('/change-password')}>
+            Change password
+          </button>
+          <button type="button" onClick={() => void logout()}>
+            Sign out
+          </button>
         </div>
-        <Suspense fallback={<PageLoader />}>
-          <Outlet />
-        </Suspense>
-      </AppShell.Main>
-    </AppShell>
+      </aside>
+
+      <div className="k-body">
+        <header className="k-topbar">
+          <GlobalSearch />
+          {can('emergency_view:read') && (
+            <Button color="red" size="md" component={Link} to="/emergency">
+              Emergency
+            </Button>
+          )}
+          <AlertsButton />
+        </header>
+        <header className="k-phonebar">
+          {location.pathname !== '/' && (
+            <button type="button" className="k-round" aria-label="Back" onClick={() => navigate(-1)}>
+              ‹
+            </button>
+          )}
+          <h1 aria-live="polite">{titleFor(location.pathname)}</h1>
+          <button type="button" className="k-round" onClick={find.open}>
+            Find
+          </button>
+          <AlertsButton phone />
+        </header>
+        <OfflineBanner />
+        <main id="main" className="k-main" tabIndex={-1}>
+          <Suspense fallback={<PageLoader />}>
+            <Outlet />
+          </Suspense>
+        </main>
+      </div>
+
+      <nav className="k-tabbar" aria-label="Phone menu">
+        {tabs.map((t) => (
+          <Link key={t.label} to={t.to} aria-current={tabActive(t.to) ? 'page' : undefined}>
+            {t.label}
+          </Link>
+        ))}
+        <button type="button" onClick={more.open} aria-haspopup="dialog">
+          More
+        </button>
+      </nav>
+      {can('emergency_view:read') && !location.pathname.includes('/emergency') && (
+        <Link to="/emergency" className="k-fab">
+          Emergency
+        </Link>
+      )}
+
+      <Drawer opened={moreOpen} onClose={more.close} position="bottom" size="85%" title={<Text fw={600}>{me?.fullName} · {roles}</Text>}>
+        <nav className="k-more" aria-label="All menu items">
+          {items.map((i) => (
+            <Link key={i.to} to={i.to} onClick={more.close}>
+              {i.label}
+            </Link>
+          ))}
+          <Link to="/change-password" onClick={more.close}>
+            Change password
+          </Link>
+        </nav>
+        <Button mt="md" variant="default" fullWidth size="md" onClick={() => void logout()}>
+          Sign out
+        </Button>
+      </Drawer>
+      <Modal opened={findOpen} onClose={find.close} title="Find" fullScreen>
+        <div onClick={(e) => (e.target as HTMLElement).closest('[role="option"]') && find.close()}>
+          <GlobalSearch autoFocus />
+        </div>
+      </Modal>
+    </>
   );
 }
 

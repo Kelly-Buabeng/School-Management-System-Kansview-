@@ -17,6 +17,8 @@ const MfaSetupPage = page(() => import('@/auth/LoginPages').then((m) => ({ defau
 const ChangePasswordPage = page(() => import('@/auth/LoginPages').then((m) => ({ default: m.ChangePasswordPage })));
 
 export const pages = {
+  emergencyFinder: page(() => import('@/features/emergency/EmergencyFinderPage')),
+  guardians: page(() => import('@/features/guardians/GuardiansListPage')),
   dashboard: page(() => import('@/features/dashboard/DashboardPage')),
   students: page(() => import('@/features/students/StudentListPage')),
   studentProfile: page(() => import('@/features/students/StudentProfilePage')),
@@ -51,8 +53,6 @@ export const routes: RouteObject[] = [
   { path: '/mfa', element: el(MfaPage) },
   { path: '/mfa/setup', element: el(MfaSetupPage) },
   { path: '/change-password', element: <RequireAuth>{el(ChangePasswordPage)}</RequireAuth> },
-  // Emergency View is full-screen (phone first), outside the menu layout.
-  { path: '/students/:id/emergency', errorElement: <RouteError />, element: <RequireAuth>{el(pages.emergency)}</RequireAuth> },
   {
     path: '/',
     errorElement: <RouteError />,
@@ -66,6 +66,9 @@ export const routes: RouteObject[] = [
       { path: 'students', element: el(pages.students) },
       { path: 'students/new', element: el(pages.admission) },
       { path: 'students/:id', element: el(pages.studentProfile) },
+      { path: 'students/:id/emergency', element: el(pages.emergency) },
+      { path: 'emergency', element: el(pages.emergencyFinder) },
+      { path: 'guardians', element: el(pages.guardians) },
       { path: 'guardians/:id', element: el(pages.guardian) },
       { path: 'classes', element: el(pages.classes) },
       { path: 'classes/:id', element: el(pages.classRoll) },

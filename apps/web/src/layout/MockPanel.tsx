@@ -8,7 +8,7 @@ export default function MockPanel() {
   const [open, setOpen] = useState(false);
   useEffect(() => mockControl.subscribe(setMode), []);
   return (
-    <Affix position={{ bottom: 8, left: 8 }} className="no-print">
+    <Affix position={{ bottom: 90, left: 8 }} className="no-print">
       <Paper withBorder shadow="sm" p={6} maw={340}>
         <Text size="xs" fw={700} style={{ cursor: 'pointer' }} onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen((o) => !o)} aria-expanded={open}>
           Demo network: {mode === 'normal' ? 'working' : mode} {open ? '▾' : '▸'}

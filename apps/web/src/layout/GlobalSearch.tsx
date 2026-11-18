@@ -27,7 +27,7 @@ function flatten(r: SearchResults): Hit[] {
 }
 
 /** Global search. Press "/" anywhere to jump here. Results are grouped; arrow keys + Enter to open. */
-export function GlobalSearch() {
+export function GlobalSearch({ autoFocus = false, shortcut = !autoFocus }: { autoFocus?: boolean; shortcut?: boolean } = {}) {
   const [value, setValue] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -37,10 +37,12 @@ export function GlobalSearch() {
   const listId = useId();
 
   useEffect(() => {
+    if (!shortcut) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
-      if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey) {
+      const ctrlK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k';
+      if (ctrlK || (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey)) {
         e.preventDefault();
         inputRef.current?.focus();
         setOpen(true);
@@ -48,7 +50,7 @@ export function GlobalSearch() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [shortcut]);
 
   const query = useQuery({
     queryKey: ['search', debounced],
@@ -71,7 +73,7 @@ export function GlobalSearch() {
   let lastGroup = '';
 
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: 480 }}>
+    <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
       <TextInput
         ref={inputRef}
         value={value}
@@ -96,14 +98,17 @@ export function GlobalSearch() {
             inputRef.current?.blur();
           }
         }}
-        placeholder="Search students, parents, receipts…"
+        placeholder="Search name, ID, phone, class"
+        autoFocus={autoFocus}
+        size="md"
         aria-label="Search"
         role="combobox"
         aria-expanded={showPanel}
         aria-controls={listId}
         aria-activedescendant={showPanel && hits[active] ? `${listId}-${hits[active].key}` : undefined}
         aria-autocomplete="list"
-        rightSection={query.isFetching ? <Loader size="xs" /> : <Kbd visibleFrom="sm">/</Kbd>}
+        rightSectionWidth={64}
+        rightSection={query.isFetching ? <Loader size="xs" /> : <Kbd size="xs" visibleFrom="sm">Ctrl K</Kbd>}
       />
       {showPanel && (
         <Paper shadow="md" withBorder p={4} style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 300, maxHeight: '70vh', overflowY: 'auto' }}>
