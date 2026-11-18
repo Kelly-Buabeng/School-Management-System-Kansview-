@@ -4,6 +4,8 @@ import { APP_CONFIG, type AppConfig } from '../../common/config';
 import { NOTIFICATION_SERVICE } from '../../common/contracts';
 import { DeliveryProcessor } from './delivery.processor';
 import { MessageDispatcher } from './message-dispatcher';
+import { MessagesController, MessageTemplatesController } from './messages.controller';
+import { MessagesService } from './messages.service';
 import { QueueNotificationService } from './notification.service';
 import { NotificationsWorker } from './notifications.worker';
 import { MESSAGE_PROVIDER } from './providers/message-provider';
@@ -12,7 +14,9 @@ import { BossService } from './queue/boss.service';
 
 @Global()
 @Module({
+  controllers: [MessageTemplatesController, MessagesController],
   providers: [
+    MessagesService,
     BossService,
     { provide: MESSAGE_PROVIDER, inject: [APP_CONFIG], useFactory: (cfg: AppConfig) => createMessageProvider(cfg) },
     MessageDispatcher,
