@@ -6,10 +6,11 @@ import { count, idemKey, setupG, uploadAndValidate, USER_IDS, type GCtx } from '
 
 const RANDOM_ID = '01900000-0000-7000-8000-00000000beef';
 
-function binary(res: NodeJS.ReadableStream & { setEncoding?: (e: string) => void }, cb: (err: Error | null, body: Buffer) => void) {
+function binary(res: import('supertest').Response, cb: (err: Error | null, body: Buffer) => void) {
+  const stream = res as unknown as NodeJS.ReadableStream;
   const chunks: Buffer[] = [];
-  res.on('data', (c: Buffer) => chunks.push(c));
-  res.on('end', () => cb(null, Buffer.concat(chunks)));
+  stream.on('data', (c: Buffer) => chunks.push(c));
+  stream.on('end', () => cb(null, Buffer.concat(chunks)));
 }
 
 async function readXlsx(buf: Buffer): Promise<ExcelJS.Worksheet> {
