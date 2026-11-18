@@ -1,16 +1,24 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import argon2 from 'argon2';
-import type pg from 'pg';
+import { Kysely, PostgresDialect } from 'kysely';
+import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isValidStudentCode } from '../../packages/shared/src/damm';
-import { DEV_USERS, seed } from '../seeds/seed.mjs';
+import { DEV_MFA, DEV_USERS, seed } from '../seeds/seed.mjs';
 import { createDb, one, type TestDb } from './support';
 
 let db: TestDb;
 let c: pg.Client;
+const keyFile = join(mkdtempSync(join(tmpdir(), 'a-seed-')), 'master.key');
+writeFileSync(keyFile, `1:${randomBytes(32).toString('base64')}\nbidx:${randomBytes(32).toString('base64')}\n`, { mode: 0o600 });
+const opts = { seed: 42, log: () => {}, skipMigrate: true, masterKeyFile: keyFile };
 
 beforeAll(async () => {
   db = await createDb('a_ts');
-  await seed(db.url, { seed: 42, log: () => {}, skipMigrate: true });
+  await seed(db.url, opts);
   c = await db.client();
 }, 180_000);
 afterAll(async () => db?.drop());
@@ -42,6 +50,50 @@ describe('seed generator', () => {
     const { password_hash } = await one<{ password_hash: string }>(c, 'SELECT password_hash FROM app.users WHERE username = $1', [u.username]);
     expect(password_hash.startsWith('$argon2id$')).toBe(true);
     expect(await argon2.verify(password_hash, u.password)).toBe(true);
+  });
+
+  it('works with the API: Argon2 settings, field crypto, TOTP and blind index', async () => {
+    const { parseKeyFile, FieldCryptoEngine } = await import('../../apps/api/src/security/field-crypto.service');
+    const { verifyTotp, currentTotp, consumeRecoveryCode } = await import('../../apps/api/src/security/totp');
+    const { ARGON2_OPTIONS } = await import('../../apps/api/src/security/password-hasher');
+    const engine = new FieldCryptoEngine(parseKeyFile((await import('node:fs')).readFileSync(keyFile, 'utf8')));
+    const admin = await one<{ password_hash: string; mfa_enabled: boolean; mfa_secret_enc: Buffer; mfa_recovery_codes_hash: string[] }>(c,
+      `SELECT password_hash, mfa_enabled, mfa_secret_enc, mfa_recovery_codes_hash FROM app.users WHERE username = 'admin'`);
+    expect(admin.password_hash).toMatch(new RegExp(`^\\$argon2id\\$v=19\\$m=${ARGON2_OPTIONS.memoryCost},t=${ARGON2_OPTIONS.timeCost},p=${ARGON2_OPTIONS.parallelism}\\$`));
+    expect(admin.mfa_enabled).toBe(true);
+    const secret = engine.decrypt(admin.mfa_secret_enc);
+    expect(secret).toBe(DEV_MFA.admin.secret);
+    expect(verifyTotp(currentTotp(secret), secret, null)).not.toBeNull();
+    expect(consumeRecoveryCode(DEV_MFA.admin.recoveryCodes[0]!, admin.mfa_recovery_codes_hash)).toHaveLength(2);
+    const g = await one<{ ghana_card_enc: Buffer; ghana_card_bidx: Buffer; ghana_card_last4: string }>(c, 'SELECT ghana_card_enc, ghana_card_bidx, ghana_card_last4 FROM app.guardians LIMIT 1');
+    const card = engine.decrypt(g.ghana_card_enc);
+    expect(card).toMatch(/^GHA-\d{9}-\d$/);
+    expect(engine.blindIndex(card).equals(g.ghana_card_bidx)).toBe(true);
+    expect(card.replace(/\D/g, '').slice(-4)).toBe(g.ghana_card_last4);
+    const m = await one<{ allergies_enc: Buffer | null; chronic_conditions_enc: Buffer | null }>(c, 'SELECT allergies_enc, chronic_conditions_enc FROM app.student_medical WHERE has_alert LIMIT 1');
+    expect(engine.decrypt((m.allergies_enc ?? m.chronic_conditions_enc)!).length).toBeGreaterThan(3);
+  });
+
+  it("Agent C's LedgerService agrees with the seeded ledger", async () => {
+    const { LedgerServiceImpl } = await import('../../apps/api/src/modules/finance/ledger.service');
+    const { FinanceStore } = await import('../../apps/api/src/modules/finance/finance-store');
+    const kdb = new Kysely<any>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: db.url, max: 2 }) }) });
+    try {
+      const ledger = new LedgerServiceImpl(kdb as never, new FinanceStore(kdb as never));
+      const sample = (await c.query(`
+        (SELECT student_id FROM app.mv_student_balances WHERE balance_pesewas > 0 ORDER BY student_id LIMIT 3)
+        UNION ALL (SELECT student_id FROM app.mv_student_balances WHERE balance_pesewas < 0 ORDER BY student_id LIMIT 2)
+        UNION ALL (SELECT DISTINCT student_id FROM app.payments WHERE status = 'reversed' LIMIT 2)`)).rows.map((x) => x.student_id as string);
+      expect(sample.length).toBeGreaterThanOrEqual(5);
+      for (const id of sample) {
+        const mine = await one<{ b: number }>(c, 'SELECT balance_pesewas::int AS b FROM app.mv_student_balances WHERE student_id = $1', [id]);
+        const theirs = await ledger.balance(id);
+        expect(theirs.balancePesewas).toBe(mine.b);
+        expect(theirs.creditPesewas).toBe(mine.b < 0 ? -mine.b : 0);
+      }
+    } finally {
+      await kdb.destroy();
+    }
   });
 
   it('uses only fake test phone numbers and valid student codes', async () => {
@@ -89,12 +141,12 @@ describe('seed generator', () => {
 
   it('is idempotent and deterministic', async () => {
     const before = await count('SELECT count(*) FROM app.students');
-    await expect(seed(db.url, { seed: 42, log: () => {}, skipMigrate: true })).resolves.toEqual({ skipped: true });
+    await expect(seed(db.url, opts)).resolves.toEqual({ skipped: true });
     expect(await count('SELECT count(*) FROM app.students')).toBe(before);
 
     const other = await createDb('a_ts');
     try {
-      await seed(other.url, { seed: 42, log: () => {}, skipMigrate: true });
+      await seed(other.url, opts);
       const oc = await other.client();
       const q = `SELECT student_code, first_name, last_name, date_of_birth::text FROM app.students ORDER BY student_code`;
       expect((await oc.query(q)).rows).toEqual((await c.query(q)).rows);

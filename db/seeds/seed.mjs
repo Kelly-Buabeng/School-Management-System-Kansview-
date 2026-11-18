@@ -7,7 +7,9 @@
 // - Finance rows follow the ledger rules (charges per invoice line, payments with allocations,
 //   approved adjustments, reversal entries), so balances = SUM(ledger_entries.amount_pesewas).
 // Never point this at a production database.
-import { createCipheriv, createHmac } from 'node:crypto';
+import { createCipheriv, createHash, createHmac, hkdfSync, randomBytes } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import argon2 from 'argon2';
 import pg from 'pg';
@@ -15,6 +17,14 @@ import { migrate } from '../tools/migrate.mjs';
 import * as D from './data.mjs';
 
 export const SEED_VERSION = 1;
+/** Same as apps/api/src/security/password-hasher.ts ARGON2_OPTIONS. */
+export const ARGON2_OPTIONS = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 };
+/** Dev-only TOTP secrets (base32) and recovery codes for the MFA-mandatory roles. */
+export const DEV_MFA = {
+  admin: { secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', recoveryCodes: ['kans-devr-ec01', 'kans-devr-ec02', 'kans-devr-ec03'] },
+  bursar: { secret: 'KRSXG5CTMVRXEZLUKRSXG5CTMVRXEZLU', recoveryCodes: ['kans-devr-ec11', 'kans-devr-ec12', 'kans-devr-ec13'] },
+};
+const recoveryHash = (code) => createHash('sha256').update(`sms-recovery:${code.toLowerCase().replace(/[^a-z0-9]/g, '')}`).digest('hex');
 export const DEFAULT_SEED = 20261117;
 
 /** Dev-only passwords (documented in db/seeds/README.md). */
@@ -83,6 +93,7 @@ function studentCode(school, year, seq) {
   const n = String(seq).padStart(5, '0');
   return `${school}-${yy}-${n}-${damm(yy + n)}`;
 }
+const METHOD_LABEL = { cash: 'cash', bank_transfer: 'bank transfer', cheque: 'cheque', momo_mtn: 'MTN MoMo', telecel_cash: 'Telecel Cash', at_money: 'AT Money' };
 const docNo = (prefix, n) => `${prefix}-${String(n).padStart(6, '0')}`;
 
 const dayMs = 86400000;
@@ -113,22 +124,56 @@ async function insert(c, table, rows) {
   }
 }
 
-function fieldCrypto() {
-  const hex = process.env.SMS_SEED_FIELD_KEY;
-  if (!hex) return null;
-  const key = Buffer.from(hex, 'hex');
-  if (key.length !== 32) throw new Error('SMS_SEED_FIELD_KEY must be 64 hex characters (32 bytes)');
-  let counter = 0;
+// Field encryption compatible with apps/api/src/security/field-crypto.service.ts (format v1):
+// [0x01][key id][wrap iv 12][wrap tag 16][wrapped DEK 32][payload iv 12][payload tag 16][ciphertext]
+// Header is AAD for the DEK wrap; payload AAD is 'sms-field-v1'. Blind index = HMAC-SHA256 with the bidx key.
+export function parseKeyFile(content) {
+  const keys = new Map();
+  let bidx = null;
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const m = /^(bidx|\d{1,3}):([A-Za-z0-9+/=]+)$/.exec(line);
+    if (!m) throw new Error('Master key file: each line must look like "<id>:<base64 key>" or "bidx:<base64 key>"');
+    const key = Buffer.from(m[2], 'base64');
+    if (key.length !== 32) throw new Error('Master key file: every key must be 32 bytes');
+    if (m[1] === 'bidx') bidx = key; else keys.set(Number(m[1]), key);
+  }
+  if (!keys.size) throw new Error('Master key file contains no keys');
+  const ids = [...keys.keys()].sort((a, b) => a - b);
+  const blindIndexKey = bidx ?? Buffer.from(hkdfSync('sha256', keys.get(ids[0]), Buffer.alloc(0), 'sms-blind-index-v1', 32));
+  return { keys, activeKeyId: ids[ids.length - 1], blindIndexKey };
+}
+
+function fieldCrypto(keyFileContent) {
+  const ring = parseKeyFile(keyFileContent);
+  const master = ring.keys.get(ring.activeKeyId);
   return {
-    // iv(12) | tag(16) | ciphertext, like the dev FieldCrypto in apps/api. IV is derived deterministically (dev data only).
     encrypt(text) {
-      const iv = createHmac('sha256', key).update(`iv:${counter++}`).digest().subarray(0, 12);
-      const ci = createCipheriv('aes-256-gcm', key, iv);
-      const body = Buffer.concat([ci.update(text, 'utf8'), ci.final()]);
-      return Buffer.concat([iv, ci.getAuthTag(), body]);
+      const header = Buffer.from([0x01, ring.activeKeyId]);
+      const dek = randomBytes(32);
+      const piv = randomBytes(12);
+      const pc = createCipheriv('aes-256-gcm', dek, piv);
+      pc.setAAD(Buffer.from('sms-field-v1'));
+      const body = Buffer.concat([pc.update(text, 'utf8'), pc.final()]);
+      const ptag = pc.getAuthTag();
+      const wiv = randomBytes(12);
+      const wc = createCipheriv('aes-256-gcm', master, wiv);
+      wc.setAAD(header);
+      const wrapped = Buffer.concat([wc.update(dek), wc.final()]);
+      return Buffer.concat([header, wiv, wc.getAuthTag(), wrapped, piv, ptag, body]);
     },
-    blindIndex(text) { return createHmac('sha256', key).update(text).digest(); },
+    blindIndex(text) { return createHmac('sha256', ring.blindIndexKey).update(text, 'utf8').digest(); },
   };
+}
+
+/** Dev key file used when SMS_MASTER_KEY_FILE is not set (created on first run, git-ignored). */
+export const DEV_KEY_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '.dev-master.key');
+function ensureDevKeyFile(path) {
+  if (!existsSync(path)) {
+    writeFileSync(path, `# DEV ONLY. Generated by db/seeds/seed.mjs. Never use in production.\n1:${randomBytes(32).toString('base64')}\nbidx:${randomBytes(32).toString('base64')}\n`, { mode: 0o600 });
+  }
+  return path;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -154,7 +199,9 @@ const emailOf = (first, last, n) => `${`${first}.${last}`.toLowerCase().replace(
 // ---------------------------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------------------------
-export async function seed(url, { seed = DEFAULT_SEED, log = console.log, skipMigrate = false } = {}) {
+export async function seed(url, { seed = DEFAULT_SEED, log = console.log, skipMigrate = false, masterKeyFile = process.env.SMS_MASTER_KEY_FILE } = {}) {
+  if (!masterKeyFile) throw new Error('A master key file is needed to encrypt MFA secrets, Ghana Card numbers and medical notes (set SMS_MASTER_KEY_FILE, the same file the API uses).');
+  const keyFileContent = readFileSync(masterKeyFile, 'utf8');
   if (!skipMigrate) await migrate(url, { log: () => {} });
   const c = new pg.Client({ connectionString: url });
   await c.connect();
@@ -169,7 +216,7 @@ export async function seed(url, { seed = DEFAULT_SEED, log = console.log, skipMi
     }
     const existing = await c.query('SELECT count(*)::int AS n FROM app.students');
     if (existing.rows[0].n > 0) throw new Error('This database already has students that were not created by the seed. The seed only runs on an empty database.');
-    const summary = await generate(c, new Rng(seed), log);
+    const summary = await generate(c, new Rng(seed), log, keyFileContent);
     await insert(c, 'app.settings', [{ key: 'dev.seed', value: JSON.stringify({ seed, version: SEED_VERSION, generatedFor: TODAY }), description: 'Marker: this database contains FAKE development seed data' }]);
     await c.query('REFRESH MATERIALIZED VIEW app.mv_student_balances');
     await c.query('COMMIT');
@@ -183,8 +230,8 @@ export async function seed(url, { seed = DEFAULT_SEED, log = console.log, skipMi
   }
 }
 
-async function generate(c, r, log) {
-  const crypto = fieldCrypto();
+async function generate(c, r, log, keyFileContent) {
+  const crypto = fieldCrypto(keyFileContent);
   const school = (await c.query('SELECT school_code FROM app.school_profile WHERE id = 1')).rows[0].school_code;
   await c.query(`UPDATE app.school_profile SET name = 'Kansview School', motto = 'Knowledge, Discipline, Service',
     address = 'Plot 7, Mango Street, Dzorwulu, Accra', phone = '+233200000001', email = 'office@example.com' WHERE id = 1`);
@@ -213,7 +260,7 @@ async function generate(c, r, log) {
       title: gender === 'male' ? 'Mr' : r.pick(['Mrs', 'Ms', 'Madam']), gender, date_of_birth: `${r.int(1966, 1999)}-${String(r.int(1, 12)).padStart(2, '0')}-${String(r.int(1, 28)).padStart(2, '0')}`,
       phone: `+23324000${staffPhone++}`, email: emailOf(first, last, ''), address: `${area}, ${city}`, staff_type: type, job_title: job,
       employment_date: `${r.int(2008, 2025)}-09-01`, status: 'active',
-      ghana_card_enc: crypto ? crypto.encrypt(`GHA-${r.digits(9)}-${r.digits(1)}`) : null, ssnit_no_enc: null, user_id: null,
+      ghana_card_enc: crypto.encrypt(`GHA-${r.digits(9)}-${r.digits(1)}`), ssnit_no_enc: null, user_id: null,
     };
   });
   await insert(c, 'app.staff', staff);
@@ -282,13 +329,15 @@ async function generate(c, r, log) {
 
   // ---------------- users ----------------
   const hashes = {};
-  for (const u of DEV_USERS) hashes[u.password] ??= await argon2.hash(u.password, { type: argon2.argon2id });
+  for (const u of DEV_USERS) hashes[u.password] ??= await argon2.hash(u.password, ARGON2_OPTIONS);
   const users = DEV_USERS.map((u) => {
     const st = u.staffJob ? staffByJob(u.staffJob)[0] : u.classTeacherOf ? teacherOfKey[u.classTeacherOf] : null;
     return {
       id: r.uuid(), username: u.username, email: `${u.username}@example.com`,
       full_name: st ? `${st.title} ${st.first_name} ${st.last_name}` : u.fullName, password_hash: hashes[u.password], user_type: 'staff',
       roles: [u.role], status: 'active', must_change_password: false, password_changed_at: '2026-09-01T08:00:00Z', staff_id: st?.id ?? null,
+      mfa_enabled: !!DEV_MFA[u.username], mfa_secret_enc: DEV_MFA[u.username] ? crypto.encrypt(DEV_MFA[u.username].secret) : null,
+      mfa_recovery_codes_hash: DEV_MFA[u.username] ? DEV_MFA[u.username].recoveryCodes.map(recoveryHash) : null,
     };
   });
   await insert(c, 'app.users', users);
@@ -356,7 +405,7 @@ async function generate(c, r, log) {
         phone_secondary: r.chance(0.4) ? `+23320000${String(g2Phone++).padStart(4, '0')}` : null,
         whatsapp_number: null, email: r.chance(0.5) ? emailOf(first, lastName, r.int(1, 99)) : null,
         occupation: r.pick(D.OCCUPATIONS), workplace: r.pick(D.WORKPLACES), home_address: fam.address, work_address: null,
-        ghana_card_enc: crypto ? crypto.encrypt(card) : null, ghana_card_bidx: crypto ? crypto.blindIndex(card.replace(/-/g, '')) : null,
+        ghana_card_enc: crypto.encrypt(card), ghana_card_bidx: crypto.blindIndex(card),
         ghana_card_last4: card.replace(/\D/g, '').slice(-4), relationship, gender,
       };
       g.whatsapp_number = r.chance(0.6) ? g.phone_primary : null;
@@ -494,7 +543,7 @@ async function generate(c, r, log) {
     if (!r.chance(0.1)) continue;
     const alert = r.chance(0.6) ? r.pick(D.MEDICAL_ALERTS) : null;
     const minor = alert ? null : r.pick(D.MINOR_MEDICAL);
-    const enc = (t) => (crypto && t ? crypto.encrypt(t) : null);
+    const enc = (t) => (t ? crypto.encrypt(t) : null);
     medical.push({ student_id: s.id, blood_group: r.pick(['O+', 'O+', 'A+', 'B+', 'AB+', 'O-']),
       allergies_enc: enc(alert && /allerg/i.test(alert) ? alert : minor && /allerg/i.test(minor) ? minor : null),
       chronic_conditions_enc: enc(alert && !/allerg/i.test(alert) ? alert : null), medication_notes_enc: enc(alert && /EpiPen|inhaler|insulin/.test(alert) ? 'Medication kept at the school office' : null),
@@ -571,6 +620,7 @@ async function generate(c, r, log) {
   const allocations = [];
   const adjustments = [];
   const paymentReversals = [];
+  const termForDate = (d) => terms.find((x) => x.start_date <= d && x.end_date >= d)?.id ?? null; // as FinanceStore.termForDate
   const methodPick = () => r.weighted([['cash', 40], ['momo_mtn', 30], ['telecel_cash', 8], ['at_money', 4], ['bank_transfer', 15], ['cheque', 3]]);
   const banks = ['GCB Bank', 'Ecobank Ghana', 'Fidelity Bank', 'CalBank', 'Absa Bank Ghana', 'Stanbic Bank'];
 
@@ -626,15 +676,16 @@ async function generate(c, r, log) {
       if (s.transport) optional.push({ id: r.uuid(), student_id: s.id, term_id: t.id, fee_item_id: feeItems.TRANSPORT.id, opted_in: true });
       const invoiceId = r.uuid();
       const total = lines.reduce((x, l) => x + l.amount_pesewas, 0);
-      invoices.push({ id: invoiceId, student_id: s.id, term_id: t.id, class_id: cls.id, issue_date: issue, due_date: addDays(t.start_date, 21),
-        opening_balance_pesewas: balance, total_pesewas: total, status: 'issued', generation_batch_id: null, studentCode: s.code, created_by: U.bursar });
-      const newLines = lines.map((l) => ({ id: r.uuid(), invoice_id: invoiceId, fee_item_id: l.fee_item_id, description: `${feeItems[l.code].name} – ${t.name}`,
+      const invoiceRow = { id: invoiceId, student_id: s.id, term_id: t.id, class_id: cls.id, issue_date: issue, due_date: addDays(t.start_date, 21),
+        opening_balance_pesewas: balance, total_pesewas: total, status: 'issued', generation_batch_id: null, studentCode: s.code, created_by: U.bursar };
+      invoices.push(invoiceRow);
+      const newLines = lines.map((l) => ({ id: r.uuid(), invoice_id: invoiceId, fee_item_id: l.fee_item_id, description: feeItems[l.code].name,
         amount_pesewas: l.amount_pesewas, allocation_priority: feeItems[l.code].allocation_priority, created_by: U.bursar, remaining: l.amount_pesewas, code: l.code }));
       newLines.sort((a, b) => a.allocation_priority - b.allocation_priority);
       invLines.push(...newLines);
       open.push(...newLines);
       for (const l of newLines) ledger.push({ id: r.uuid(), student_id: s.id, posted_at: at(issue, 8, 0), term_id: t.id, entry_type: 'invoice_charge', amount_pesewas: l.amount_pesewas,
-        invoice_line_id: l.id, payment_id: null, adjustment_id: null, reverses_entry_id: null, description: l.description, posted_by: U.bursar });
+        invoice_line_id: l.id, payment_id: null, adjustment_id: null, reverses_entry_id: null, description: l.description, posted_by: U.bursar, describe: () => `${invoiceRow.invoice_no} ${l.description}` });
       balance += total;
       // auto-apply existing credit to the new invoice (re-allocation: negative credit row + new rows)
       for (const cr of credits.filter((x) => x.amount > 0)) {
@@ -693,8 +744,8 @@ async function generate(c, r, log) {
         };
         payments.push(p);
         allocate(p.id, amount, r.uuid());
-        const entry = { id: r.uuid(), student_id: s.id, posted_at: p.received_at, term_id: t.id, entry_type: 'payment', amount_pesewas: -amount, invoice_line_id: null,
-          payment_id: p.id, adjustment_id: null, reverses_entry_id: null, description: `Payment (${method.replace(/_/g, ' ')})`, posted_by: U.bursar };
+        const entry = { id: r.uuid(), student_id: s.id, posted_at: p.received_at, term_id: termForDate(d), entry_type: 'payment', amount_pesewas: -amount, invoice_line_id: null,
+          payment_id: p.id, adjustment_id: null, reverses_entry_id: null, description: '', posted_by: U.bursar, describe: () => `Receipt ${p.receipt_no} (${METHOD_LABEL[method]}${ref ? ` ${ref}` : ''})` };
         ledger.push(entry);
         balance -= amount;
         // a duplicate entry recorded by mistake, then reversed the same day
@@ -704,7 +755,7 @@ async function generate(c, r, log) {
           const dup = { ...p, id: r.uuid(), received_at: dupAt, idempotency_key: r.uuid(), notes: 'Recorded twice by mistake', duplicate_override_reason: null };
           payments.push(dup);
           const made = allocate(dup.id, amount, r.uuid());
-          const dupEntry = { ...entry, id: r.uuid(), posted_at: dupAt, payment_id: dup.id };
+          const dupEntry = { ...entry, id: r.uuid(), posted_at: dupAt, payment_id: dup.id, describe: () => `Receipt ${dup.receipt_no} (${METHOD_LABEL[method]}${ref ? ` ${ref}` : ''})` };
           ledger.push(dupEntry);
           const revAt = new Date(new Date(dupAt).getTime() + 60 * 60000).toISOString().replace('.000', '');
           const revBatch = r.uuid();
@@ -713,12 +764,13 @@ async function generate(c, r, log) {
             if (m.invoice_line_id) open.find((l) => l.id === m.invoice_line_id).remaining += m.amount_pesewas;
             else credits.find((cr) => cr.paymentId === dup.id).amount -= m.amount_pesewas;
           }
-          const revEntry = { id: r.uuid(), student_id: s.id, posted_at: revAt, term_id: t.id, entry_type: 'reversal', amount_pesewas: amount, invoice_line_id: null,
-            payment_id: dup.id, adjustment_id: null, reverses_entry_id: dupEntry.id, description: 'Reversal: duplicate entry', posted_by: U.bursar };
+          const revEntry = { id: r.uuid(), student_id: s.id, posted_at: revAt, term_id: dupEntry.term_id, entry_type: 'reversal', amount_pesewas: amount, invoice_line_id: null,
+            payment_id: dup.id, adjustment_id: null, reverses_entry_id: dupEntry.id, description: '', posted_by: U.bursar, describe: () => `${pr.reversal_no} reverses receipt ${dup.receipt_no}: ${pr.reason}` };
           reversalLedger.push(revEntry);
           Object.assign(dup, { status: 'reversed', reversed_at: revAt, reversed_by: U.admin, reversal_reason: 'Duplicate entry: payment was recorded twice' });
-          paymentReversals.push({ id: r.uuid(), payment_id: dup.id, reason: 'Duplicate entry: payment was recorded twice', status: 'approved', requested_by: U.bursar,
-            requested_at: dupAt, approved_by: U.admin, approved_at: revAt, ledger_entry_id: revEntry.id, revAt });
+          const pr = { id: r.uuid(), payment_id: dup.id, reason: 'Duplicate entry: payment was recorded twice', status: 'approved', requested_by: U.bursar,
+            requested_at: dupAt, approved_by: U.admin, approved_at: revAt, ledger_entry_id: revEntry.id, revAt };
+          paymentReversals.push(pr);
         }
       });
     }
@@ -756,6 +808,7 @@ async function generate(c, r, log) {
   await insert(c, 'app.adjustments', adjustments);
   await insert(c, 'app.payments', payments.map(({ business_date, ...p }) => ({ ...p, cash_up_id: cashUpByDay[business_date], duplicate_override_reason: p.duplicate_override_reason ?? null })));
   await insert(c, 'app.payment_allocations', allocations);
+  for (const e of [...ledger, ...reversalLedger]) { if (e.describe) e.description = e.describe(); delete e.describe; }
   ledger.sort((a, b) => a.posted_at.localeCompare(b.posted_at) || a.id.localeCompare(b.id));
   await insert(c, 'app.ledger_entries', ledger);
   await insert(c, 'app.ledger_entries', reversalLedger);
@@ -790,5 +843,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const i = process.argv.indexOf('--seed');
   const seedNo = i > 0 ? Number(process.argv[i + 1]) : DEFAULT_SEED;
   if (!Number.isInteger(seedNo)) { console.error('--seed must be an integer'); process.exit(1); }
-  seed(url, { seed: seedNo }).catch((e) => { console.error(e.message); process.exit(1); });
+  const masterKeyFile = process.env.SMS_MASTER_KEY_FILE ?? ensureDevKeyFile(DEV_KEY_FILE);
+  if (!process.env.SMS_MASTER_KEY_FILE) console.log(`using dev key file ${masterKeyFile}; start the API with SMS_MASTER_KEY_FILE=${masterKeyFile}`);
+  seed(url, { seed: seedNo, masterKeyFile }).catch((e) => { console.error(e.message); process.exit(1); });
 }
