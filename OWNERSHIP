@@ -6,6 +6,7 @@ docs/contracts/                                 ORCH
 docs/plan/                                      ORCH
 docs/user/_notes/                               ANY
 docs/user/                                      ORCH
+docs/design/                                    ORCH
 docs/security/                                  D
 docs/operations/                                H
 docs/import-templates/                          G
