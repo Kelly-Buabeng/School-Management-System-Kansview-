@@ -34,7 +34,6 @@ export class CashUpsService {
       return await this.db.transaction().execute(async (tx) => {
         const row = await tx.insertInto('cash_ups').values({ business_date: date, opened_by: user.id, notes: body.notes ?? null, status: 'open', created_by: user.id, updated_by: user.id })
           .returning('id').executeTakeFirstOrThrow();
-        await tx.updateTable('payments').set({}).where(sql<boolean>`false`).execute(); // no-op: payments are never edited to link; linking happens at recording time
         await this.audit.record({ action: 'create', entityType: 'cash_up', entityId: row.id, changes: { businessDate: { after: date } } }, user, tx);
         return this.view(tx, row.id);
       });
