@@ -13,3 +13,7 @@ Small interface clean-ups agreed in change requests. None blocks a checkpoint; e
 | 7 | Agent A report | Production must connect as a login member of `sms_app`, not a superuser | H |
 | 8 | Agent D / F reports | Grant pg-boss its `pgboss` schema in production; clean-up jobs for old sessions, login attempts and reset tokens | H |
 | 9 | Agent B report | Class report-card PDF and attendance summary xlsx/pdf as background export jobs (202) | B / F |
+| 10 | CR-0009 | Migration adding `app.purge_login_attempts(interval)` (SECURITY DEFINER, minimum 30 days); the worker's hourly housekeeping already calls it when present | A |
+| 11 | Agent H report | A system-status screen in the web app reading `GET /system/status` (backups, disk, queue) for the administrator | E |
+| 12 | Agent H report | Run `scripts/restore.sh` end to end and build the backup image during the CP6 rehearsal | H |
+| 13 | Agent E/orchestrator | `GET /dashboard` to return today's payments so the "Collected today" tile shows in real mode; student list to return a balance for fee badges | B / C |

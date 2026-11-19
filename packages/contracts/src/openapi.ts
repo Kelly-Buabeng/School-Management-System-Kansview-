@@ -2050,6 +2050,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/students/{id}/sibling-discount-suggestion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Suggested sibling discount for a student, from shared fee-paying guardians (suggestion only; nothing is posted, approval still needed). Added by CR-0009. */
+        get: operations["getSiblingDiscountSuggestion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/students/{id}/ledger": {
         parameters: {
             query?: never;
@@ -6386,6 +6405,26 @@ export interface operations {
         };
     };
     reverseAdjustment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getSiblingDiscountSuggestion: {
         parameters: {
             query?: never;
             header?: never;

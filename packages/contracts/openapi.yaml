@@ -471,6 +471,9 @@ paths:
   /adjustments/{id}/reverse:
     parameters: [{$ref: '#/components/parameters/Id'}]
     post: {tags: [finance], operationId: reverseAdjustment, x-permission: 'adjustments:approve', x-audit: reverse, responses: {'200': {description: OK}}}
+  /students/{id}/sibling-discount-suggestion:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get: {tags: [finance], operationId: getSiblingDiscountSuggestion, x-permission: 'adjustments:create', summary: 'Suggested sibling discount for a student, from shared fee-paying guardians (suggestion only; nothing is posted, approval still needed). Added by CR-0009.', responses: {'200': {description: OK}}}
   /students/{id}/ledger:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get: {tags: [finance], operationId: getStudentLedger, x-permission: 'balances:read', responses: {'200': {description: Entries with running balance}}}

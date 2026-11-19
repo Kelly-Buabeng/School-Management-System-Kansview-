@@ -21,7 +21,6 @@ const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
  * Remove an entry as soon as the spec gains the path (the test fails if an entry is no longer needed).
  */
 const KNOWN_UNDOCUMENTED: Record<string, string> = {
-  'GET /students/{}/sibling-discount-suggestion': 'CR-0009-h-document-sibling-discount-suggestion-route',
 };
 
 /** `/students/:id/guardians/:guardianId` and `/students/{id}/guardians/{guardianId}` → `/students/{}/guardians/{}` */

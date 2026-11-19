@@ -1,7 +1,7 @@
 # CR-0010: handle idle-connection errors on the API's PostgreSQL pool
 
 - Raised by: Agent H, 2026-11-19
-- Status: **Proposed** (Orchestrator owns `apps/api/src/common/db/database.module.ts`)
+- Status: **Accepted and implemented** by Orchestrator 2026-11-19: `pool.on('error')` in `apps/api/src/common/db/database.module.ts` logs a warning and lets the pool replace the client.
 
 ## Problem
 
