@@ -131,6 +131,14 @@ allowed because the UI library needs it, see `SMS_CSP_STYLE_SRC`), `X-Frame-Opti
 `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy` (camera only for the app itself), request-size
 limits (1 MB for normal requests, 12 MB for uploads) and long caching only for content-hashed files.
 
+### Client IP addresses
+
+The API is reached only through Caddy. Caddy replaces any `X-Forwarded-For` header with the address it saw, and
+the API trusts exactly that one hop (`SMS_TRUST_PROXY: "1"` in `docker-compose.yml`). Login and reset rate limits,
+audit events, sessions and login attempts therefore record each staff device's own address. Do not publish the
+`api` container's port or put another proxy in front of Caddy without changing both settings (Caddy
+`trusted_proxies` and `SMS_TRUST_PROXY`). Check: `infra/caddy/test/client-ip-test.sh` (needs `caddy`, `node`, `curl`).
+
 ## 4. Configuration reference (infra/compose/.env)
 
 See `infra/.env.example` for every variable with comments. Secrets are never in `.env`: they are files in
