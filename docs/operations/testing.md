@@ -6,7 +6,7 @@ Owner: Agent H.
 
 | Job | What it checks |
 |---|---|
-| checks | `pnpm install --frozen-lockfile` (cached), shared packages build, OpenAPI contract check, generated API types up to date, `pnpm -r typecheck`, unit tests (api, shared, web), shellcheck, Compose files and Caddyfile valid |
+| checks | `pnpm install --frozen-lockfile` (cached), shared packages build, OpenAPI contract check, generated API types up to date, `pnpm -r typecheck`, unit tests (api, shared, web), shellcheck, WAL encryption test (`infra/backup/test/encryption-test.sh --no-db`, CP5-05), Compose files and Caddyfile valid |
 | integration (matrix PostgreSQL 16 and 18) | `db` tests (migrations, guards, audit chain, seed), `test:rbac-coverage`, contract test (Nest routes vs `openapi.yaml`), all API integration tests |
 | web | production build, **bundle budget** (`scripts/check-bundle-size.mjs`: initial JS ≤ 250 KB gzip; currently 168 KB), Playwright smoke on mocks (`--trace off`) |
 | e2e | full stack: fresh seeded PostgreSQL 18 + real API + production web build, Playwright `--trace off` (`tests/e2e`) |

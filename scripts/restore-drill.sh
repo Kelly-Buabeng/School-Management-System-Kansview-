@@ -38,6 +38,7 @@ q() { psql -X -At -h "$work/sock" -p "$1" -U postgres -d "${3:-sms}" -c "$2"; }
 export BACKUP_ROOT="$work/backups" FILES_DIR="$work/files" STATUS_DIR="$work/backups/status"
 export WAL_ARCHIVE_DIR="$work/backups/wal" WAL_STATUS_DIR="$work/backups/status"
 export AGE_RECIPIENTS_FILE="$work/keys/recipients" AGE_IDENTITY_FILE="$work/keys/identity"
+export PLAIN_WORK_DIR="$work/staging"   # stands in for the system-disk staging volume (outside the backup folder)
 export PGHOST="$work/sock" PGPORT="$DRILL_PORT" PGUSER=postgres PGDATABASE=sms
 mkdir -p "$work/sock" "$work/keys" "$BACKUP_ROOT"/{base,wal,status} "$FILES_DIR"
 [[ -f "$AGE_IDENTITY_FILE" ]] || { age-keygen -o "$AGE_IDENTITY_FILE" 2>/dev/null; age-keygen -y "$AGE_IDENTITY_FILE" > "$AGE_RECIPIENTS_FILE"; }

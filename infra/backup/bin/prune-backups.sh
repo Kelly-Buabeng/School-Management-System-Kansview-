@@ -43,14 +43,32 @@ while IFS= read -r p; do
   log warn "retention: removing unfinished backup folder $p"
   (( dry_run )) || rm -rf "$p"
 done < <(find "$BASE_DIR" -maxdepth 1 -name '.partial-*' -mmin +1440 2>/dev/null)
+# Readable staging left by an interrupted backup (system disk, CP5-05).
+while IFS= read -r p; do
+  [[ -z "$p" ]] && continue
+  log warn "retention: removing unfinished backup staging folder $p"
+  (( dry_run )) || rm -rf "$p"
+done < <(find "$PLAIN_WORK_DIR" -maxdepth 1 -name 'base-*' -mmin +1440 2>/dev/null)
 
 # WAL archive: keep everything from the oldest kept daily backup's start segment onwards.
 wal_removed=0
 if [[ -n "$oldest_daily" && -d "$WAL_DIR" ]]; then
   start_wal="$(sed -n 's/.*"startWal":"\([0-9A-F]\{24\}\)".*/\1/p' "$BASE_DIR/$oldest_daily/meta.json")"
   if [[ -n "$start_wal" ]]; then
-    wal_removed="$(pg_archivecleanup -n -x .gz "$WAL_DIR" "$start_wal" | wc -l | tr -d ' ')"
-    (( dry_run )) || pg_archivecleanup -x .gz "$WAL_DIR" "$start_wal"
+    # .age: encrypted segments; .gz: plain segments archived by older versions of archive-wal.sh.
+    wal_removed=0
+    for ext in .age .gz; do
+      n="$(pg_archivecleanup -n -x "$ext" "$WAL_DIR" "$start_wal" | wc -l | tr -d ' ')"
+      wal_removed=$((wal_removed + n))
+      (( dry_run )) || pg_archivecleanup -x "$ext" "$WAL_DIR" "$start_wal"
+    done
+    # Checksums kept by archive-wal.sh for segments that are gone.
+    if [[ -d "$WAL_DIR/.sha256" ]]; then
+      for sf in "$WAL_DIR"/.sha256/*; do
+        [[ -e "$sf" ]] || continue
+        [[ -f "$WAL_DIR/$(basename "$sf").age" ]] || { (( dry_run )) || rm -f "$sf"; }
+      done
+    fi
     # Drop off-site "already shipped" markers for WAL that no longer exists locally.
     if [[ -d "$STAGING_DIR/wal-done" ]]; then
       for mk in "$STAGING_DIR"/wal-done/*; do

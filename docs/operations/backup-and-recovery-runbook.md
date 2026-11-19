@@ -68,25 +68,35 @@ any paper receipts written during the outage.
 
 | Piece | Where | Script |
 |---|---|---|
-| Continuous WAL archive (gzip) | `/srv/sms-backup/wal/` | `infra/backup/bin/archive-wal.sh` (PostgreSQL `archive_command`, `archive_timeout=300`) |
-| Nightly base backup, encrypted with age | `/srv/sms-backup/base/<YYYYMMDDTHHMMSSZ>/` | `base-backup.sh` (`pg_basebackup -Ft -z -X stream`, manifest SHA-256, uploaded-files tar) |
+| Continuous WAL archive, gzip then **age-encrypted** (`<segment>.age`) | `/srv/sms-backup/wal/` | `infra/backup/bin/archive-wal.sh` (PostgreSQL `archive_command`, `archive_timeout=300`; runs in the `sms-postgres` image, which adds `age` to the official image; uses only the public key) |
+| Nightly base backup, encrypted with age | `/srv/sms-backup/base/<YYYYMMDDTHHMMSSZ>/` | `base-backup.sh` (`pg_basebackup -Ft -z -X stream`, manifest SHA-256, uploaded-files tar). The readable `pg_basebackup` output is staged in the `backup_staging` Docker volume on the system disk and removed once encrypted; it never touches the backup disk |
 | Retention 7/4/12 + WAL clean-up | | `prune-backups.sh` (keeps WAL from the oldest kept daily backup: PITR window ≈ 7 days) |
-| Off-site copy (rclone, S3-compatible) | `<RCLONE_REMOTE>/base/<id>/`, `<RCLONE_REMOTE>/wal/*.age` | `offsite-sync.sh` (WAL encrypted then moved; base copied once and verified; remote retention only when ≥ 3 local backups exist) |
+| Off-site copy (rclone, S3-compatible) | `<RCLONE_REMOTE>/base/<id>/`, `<RCLONE_REMOTE>/wal/*.age` | `offsite-sync.sh` (WAL already encrypted, copied then moved; base copied once and verified; remote retention only when ≥ 3 local backups exist) |
 | Scheduler, disk check, WAL archiver check | `backup` container | `scheduler.sh` (catch-up backup if the last good one is > 26 h old) |
 | Status files read by the API | `/srv/sms-backup/status/*.json` | written by all scripts; `GET /api/v1/system/status` |
 | Restore | | `restore.sh` (core), `scripts/restore.sh` (Docker wrapper) |
-| Drill | | `scripts/restore-drill.sh`, `infra/backup/test/retention-test.sh` |
+| Drill | | `scripts/restore-drill.sh`, `infra/backup/test/retention-test.sh`, `infra/backup/test/encryption-test.sh` |
 
 Encryption: age X25519. The server holds only the **public** key (`backup_age_recipients`), so a stolen server or
 off-site account cannot decrypt old backups. The private key (`backup_age_identity`) is only needed for restore and is
 not mounted in any running container.
+
+Nothing readable is written to the backup disk (CP5-05), so a stolen backup drive gives away no child records:
+WAL segments are compressed and encrypted in a pipe before they are written, and the nightly base backup is staged on
+the system disk. If the public key is missing, `archive-wal.sh` fails and PostgreSQL keeps the WAL on the main disk
+until it is fixed (the WAL archiver alert below). During a restore, the WAL needed for the replay is decrypted into
+`<data folder>.restore-wal` on the system disk (never on the backup disk) and deleted once recovery has finished.
+Segments archived as plain `.gz` before this change are still read by `restore.sh` and pruned by `prune-backups.sh`
+as they age out (about 7 days). After upgrading, check that no plain copies remain on the backup disk:
+`sudo find /srv/sms-backup -name '*.gz' -not -name '*.tar.gz'` should list nothing once a week has passed, and
+`base/.partial-*` folders from before the upgrade can be deleted.
 
 ### Daily problems
 
 | Symptom (status page / alert) | Check | Fix |
 |---|---|---|
 | Backup **failure** | `sudo docker compose logs --tail 100 backup` | Disk full? `df -h /srv/sms-backup`. Disk not mounted? `mount | grep sms-backup`. Wrong password? compare `infra/secrets/db_backup_password` with the DB role. Then `sudo scripts/backup-now.sh`. |
-| WAL archiver **failure** | `sudo docker compose logs postgres | grep archive` | Usually the backup disk is missing or full. PostgreSQL keeps the WAL and retries, so nothing is lost while you fix it, but the main disk fills up: fix within a day. |
+| WAL archiver **failure** | `sudo docker compose logs postgres | grep archive` | Usually the backup disk is missing or full, or the public key `infra/secrets/backup_age_recipients` is missing (message "age recipients not readable"). PostgreSQL keeps the WAL and retries, so nothing is lost while you fix it, but the main disk fills up: fix within a day. |
 | Off-site **failure** (no copy for > 36 h) | `sudo docker compose exec backup rclone lsd "$RCLONE_REMOTE"` | Internet down, key expired, bucket full. The local backups are still fine. |
 | Low disk space | `df -h`, `sudo du -sh /srv/sms-backup/*` | Add space; lower `KEEP_MONTHLY`; never delete WAL by hand. |
 
@@ -128,11 +138,19 @@ After restore:
 ```bash
 docker compose run --rm --no-deps -v /path/identity:/run/secrets/backup_age_identity:ro \
   -v kansview-sms_pgdata:/var/lib/postgresql --entrypoint bash backup -c \
-  'restore.sh --target-dir /var/lib/postgresql/18/docker [--time "..."] && chown -R 999:999 /var/lib/postgresql/18/docker'
+  'restore.sh --target-dir /var/lib/postgresql/18/docker [--time "..."] && chown -R 999:999 /var/lib/postgresql/18/docker /var/lib/postgresql/18/docker.restore-wal'
 docker compose up -d postgres && docker compose logs -f postgres   # wait for "database system is ready to accept connections"
+# then remove the decrypted WAL copy:
+docker compose run --rm --no-deps -v kansview-sms_pgdata:/var/lib/postgresql --entrypoint rm backup -rf /var/lib/postgresql/18/docker.restore-wal
 ```
 
 ### Drills
 
 Run `scripts/restore-drill.sh` every term (results: `restore-drill-<date>.md`) and a full CP6-style rehearsal on a
 spare machine once a year, timing every step against the 4-hour RTO.
+
+`infra/backup/test/encryption-test.sh` (CP5-05) checks that nothing readable reaches the backup disk: WAL is written
+only as age files, a marker value from the database or uploaded files is not readable anywhere under the backup
+folder, `pg_basebackup` output is staged outside it, and a restore replays the encrypted WAL. Part A (CI) needs only
+`age`; part B also needs PostgreSQL binaries and a non-root user:
+`runuser -u postgres -- env PATH=$PATH PG_BIN=/usr/lib/postgresql/16/bin infra/backup/test/encryption-test.sh`.
