@@ -44,7 +44,7 @@ origin, real session cookie and CSRF). Specs use real sign-in, TOTP for ADMIN an
 | `cp4-promotion` | next year + classes, arrears policy `block`, exceptions (repeat, transfer out), blocked commit until override reasons, commit keeps history, undo restores the exact checksum, second undo refused |
 
 Marked `test.fixme` (not yet automatable here): bursar UI flow through the MFA screen; undo after the window (needs a
-clock override; covered by the API integration test); upload with ClamAV + EICAR (needs the clamav container).
+clock override; covered by the API integration test). Not covered yet: birth-certificate upload with ClamAV + EICAR rejection (needs the clamav container in the e2e stack).
 
 Last local run (2026-11-18/19): 17 passed, 2 fixme.
 
