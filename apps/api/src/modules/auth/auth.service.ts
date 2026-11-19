@@ -348,6 +348,6 @@ export class AuthService {
       this.logger.warn({ userId: user.id }, 'password reset requested but no phone or notification service; administrator must reset instead');
       return;
     }
-    await notifications.enqueue('password_reset', [{ staffUserId: user.id, phone: staff.phone }], { resetCode: token, minutes: 30 }, { requestedByUserId: null });
+    await notifications.enqueue('password_reset', [{ staffUserId: user.id, phone: staff.phone }], { code: token, minutes: 30 }, { requestedByUserId: null });
   }
 }
