@@ -193,17 +193,17 @@ jobs:
             [ -n "$u" ] && [ "$u" != "root" ] && [ "$u" != "0" ] || { echo "::error::$i runs as root"; exit 1; }
           done
       - name: Trivy (HIGH/CRITICAL, fixed vulnerabilities fail the build)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: kansview/sms-api:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with: { scan-type: image, image-ref: kansview/sms-web:ci, severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1", skip-setup-trivy: true }
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with: { scan-type: image, image-ref: kansview/sms-backup:ci, severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1", skip-setup-trivy: true }
       - name: Trivy config scan (Dockerfiles, Compose)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with: { scan-type: config, scan-ref: infra, severity: "HIGH,CRITICAL", exit-code: "1", skip-setup-trivy: true }
