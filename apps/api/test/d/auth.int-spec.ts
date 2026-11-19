@@ -272,6 +272,79 @@ describe('MFA', () => {
   });
 });
 
+describe('MFA brute force (CP5-01)', () => {
+  const verify = (res: request.Response, code: string) =>
+    http().post('/api/v1/auth/mfa/verify').set('Cookie', cookieFrom(res)!).set('X-CSRF-Token', res.body.user.csrfToken).send({ code });
+  const oldCode = (secret: string) => authenticator.clone({ epoch: Date.now() - 3_600_000 }).generate(secret);
+
+  it('after 5 wrong TOTP codes spread across several logins, the account is locked and a further correct code is refused', async () => {
+    const secret = generateTotpSecret();
+    const id = await createUser(ctx.db, { username: 'bursar.kofi', roles: ['BURSAR'], mfaSecret: secret, crypto: ctx.crypto });
+    const statuses: number[] = [];
+    // log in, try 2 wrong codes, log in again (this used to reset the counter), and so on
+    for (let round = 0; round < 3; round++) {
+      const res = await http().post('/api/v1/auth/login').send({ username: 'bursar.kofi', password: PASSWORD });
+      statuses.push(res.status);
+      for (let i = 0; i < 2; i++) statuses.push((await verify(res, oldCode(secret))).status);
+    }
+    // the 5th wrong code locks; the 6th is refused because the session was ended by the lock
+    expect(statuses).toEqual([200, 401, 401, 200, 401, 401, 200, 423, 401]);
+    const u = await ctx.db.selectFrom('users').select(['failed_login_count', 'locked_until']).where('id', '=', id).executeTakeFirstOrThrow();
+    expect(u.failed_login_count).toBe(5);
+    expect(new Date(u.locked_until!).getTime()).toBeGreaterThan(Date.now());
+    // the right password and then the right code are both refused while locked
+    expect((await http().post('/api/v1/auth/login').send({ username: 'bursar.kofi', password: PASSWORD })).status).toBe(423);
+  });
+
+  it('a lock ends other sessions still waiting for a code, and a correct code on them is refused', async () => {
+    const secret = generateTotpSecret();
+    const id = await createUser(ctx.db, { username: 'admin.abena', roles: ['ADMIN'], mfaSecret: secret, crypto: ctx.crypto });
+    const waiting = await http().post('/api/v1/auth/login').send({ username: 'admin.abena', password: PASSWORD });
+    const attacker = await http().post('/api/v1/auth/login').send({ username: 'admin.abena', password: PASSWORD });
+    const s: number[] = [];
+    for (let i = 0; i < 5; i++) s.push((await verify(attacker, oldCode(secret))).status);
+    expect(s).toEqual([401, 401, 401, 401, 423]);
+    const r = await verify(waiting, currentTotp(secret));
+    expect(r.status).toBe(401);
+    const live = await ctx.db.selectFrom('user_sessions').select('id').where('user_id', '=', id).where('revoked_at', 'is', null).execute();
+    expect(live).toHaveLength(0);
+  });
+
+  it('verify refuses a waiting session once the account is locked (even with the right code)', async () => {
+    const secret = generateTotpSecret();
+    const id = await createUser(ctx.db, { username: 'bursar.yaa', roles: ['BURSAR'], mfaSecret: secret, crypto: ctx.crypto });
+    const res = await http().post('/api/v1/auth/login').send({ username: 'bursar.yaa', password: PASSWORD });
+    await ctx.db.updateTable('users').set({ locked_until: new Date(Date.now() + 10 * 60_000) }).where('id', '=', id).execute();
+    const r = await verify(res, currentTotp(secret));
+    expect(r.status).toBe(423);
+    expect(r.body.code).toBe('AUTH_ACCOUNT_LOCKED');
+  });
+
+  it('wrong recovery codes count too, across logins', async () => {
+    const secret = generateTotpSecret();
+    const id = await createUser(ctx.db, { username: 'admin.kwesi', roles: ['ADMIN'], mfaSecret: secret, crypto: ctx.crypto });
+    const s: number[] = [];
+    for (let round = 0; round < 2; round++) {
+      const res = await http().post('/api/v1/auth/login').send({ username: 'admin.kwesi', password: PASSWORD });
+      s.push(res.status);
+      for (let i = 0; i < 3 && res.status === 200; i++) s.push((await verify(res, `wxyz-wxy${round}-wx${i}z`)).status);
+    }
+    expect(s).toEqual([200, 401, 401, 401, 200, 401, 423, 401]);
+    const u = await ctx.db.selectFrom('users').select('locked_until').where('id', '=', id).executeTakeFirstOrThrow();
+    expect(u.locked_until).not.toBeNull();
+  });
+
+  it('a successful MFA step resets the counter', async () => {
+    const secret = generateTotpSecret();
+    const id = await createUser(ctx.db, { username: 'bursar.efua', roles: ['BURSAR'], mfaSecret: secret, crypto: ctx.crypto });
+    const res = await http().post('/api/v1/auth/login').send({ username: 'bursar.efua', password: PASSWORD });
+    expect((await verify(res, oldCode(secret))).status).toBe(401);
+    expect((await verify(res, currentTotp(secret))).status).toBe(200);
+    const u = await ctx.db.selectFrom('users').select('failed_login_count').where('id', '=', id).executeTakeFirstOrThrow();
+    expect(u.failed_login_count).toBe(0);
+  });
+});
+
 describe('passwords', () => {
   it('temporary password must be changed first; change revokes other sessions; weak passwords refused', async () => {
     await createUser(ctx.db, { username: 'reg.temp', roles: ['REGISTRAR'], mustChange: true });

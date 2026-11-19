@@ -89,8 +89,7 @@ export class AuthService {
       throw LOCKED(lockedUntil ?? undefined);
     }
     if (!ok) {
-      await this.registerFailure(user.id, user.failed_login_count, username, client.ip, 'wrong password', actor);
-      if ((user.failed_login_count + 1) % LOCKOUT_THRESHOLD === 0) throw LOCKED();
+      if (await this.registerFailure(user.id, username, client.ip, 'wrong password', actor)) throw LOCKED();
       throw INVALID();
     }
     if (user.status === 'disabled') {
@@ -100,8 +99,14 @@ export class AuthService {
     }
 
     const upgrade = this.hasher.needsRehash(user.password_hash) ? await this.hasher.hash(password) : null;
+    const phase = sessionPhase(user, { mfa_verified_at: null });
+    // CP5-01: for an account with MFA the password alone is only half of the login. The failure counter is
+    // shared with wrong MFA codes and is reset only after the MFA step succeeds (verifyMfa); resetting it here
+    // would let anyone who knows the password try 4 codes, log in again, try 4 more, and never be locked.
+    const resetFailures = phase !== 'mfa_pending';
     await this.db.updateTable('users').set({
-      failed_login_count: 0, locked_until: null, last_login_at: now, updated_at: now,
+      ...(resetFailures ? { failed_login_count: 0, locked_until: null } : {}),
+      last_login_at: now, updated_at: now,
       ...(upgrade ? { password_hash: upgrade } : {}),
     }).where('id', '=', user.id).execute();
     await this.recordAttempt(username, client.ip, true, null);
@@ -110,7 +115,6 @@ export class AuthService {
     // Session fixation: any session presented with the login request is revoked and a new id issued.
     if (client.existingSessionRaw) await this.sessions.revoke(createHash('sha256').update(client.existingSessionRaw).digest('hex'), 'replaced by new login');
     const session = await this.sessions.create(user.id, { ip: client.ip, userAgent: client.userAgent, mfaVerified: false });
-    const phase = sessionPhase(user, { mfa_verified_at: null });
     await this.audit.record({ action: 'login', entityType: 'user', entityId: user.id, reason: phase === 'full' ? null : `step: ${phase}` }, { ...actor, sessionId: session.hash });
 
     return {
@@ -132,6 +136,14 @@ export class AuthService {
     this.limiter.enforce(`mfa:${state.sessionHash}`, RATE_LIMITS.mfaPerSession, res);
     const user = await this.loadUser(authUser.id);
     const actor = this.actorOf(user);
+    // CP5-01: a lock (or a disabled account) also stops sessions that were waiting for their MFA code.
+    const lockedUntil = user.locked_until ? new Date(user.locked_until) : null;
+    if (user.status !== 'active' || user.archived_at || (lockedUntil && lockedUntil > new Date())) {
+      await this.sessions.revoke(state.sessionHash, 'account locked or disabled during MFA');
+      await this.recordAttempt(user.username, client.ip, false, 'locked');
+      await this.audit.record({ action: 'login_failed', entityType: 'user', entityId: user.id, reason: 'account locked or disabled during MFA' }, actor);
+      throw LOCKED(lockedUntil ?? undefined);
+    }
     if (!user.mfa_secret_enc) throw new AppError(400, ErrorCodes.VALIDATION_FAILED, 'Two-step sign-in is not set up');
 
     let ok = false;
@@ -151,10 +163,11 @@ export class AuthService {
       }
     }
     if (!ok) {
-      await this.registerFailure(user.id, user.failed_login_count, user.username, client.ip, 'wrong MFA code', actor);
-      if ((user.failed_login_count + 1) % LOCKOUT_THRESHOLD === 0) {
-        await this.sessions.revoke(state.sessionHash, 'locked during MFA');
-        throw LOCKED();
+      const locked = await this.registerFailure(user.id, user.username, client.ip, looksLikeRecoveryCode(code) ? 'wrong MFA recovery code' : 'wrong MFA code', actor);
+      if (locked) {
+        // Every session still waiting for a code is ended, not only this one.
+        await this.revokeMfaPendingSessions(user.id, 'locked during MFA');
+        throw LOCKED(locked);
       }
       throw new AppError(401, ErrorCodes.AUTH_MFA_INVALID, 'That code is not right. Check the time on your phone and try again.');
     }
@@ -317,12 +330,27 @@ export class AuthService {
     return u;
   }
 
-  private async registerFailure(userId: string, currentCount: number, username: string, ip: string | null, reason: string, actor: AuthUser): Promise<void> {
-    const count = currentCount + 1;
+  /**
+   * Counts one failed password or MFA attempt and locks the account at every LOCKOUT_THRESHOLD-th failure.
+   * The increment is done in the database (not from the value read earlier) so parallel guesses, for example
+   * from several MFA-pending sessions, cannot overwrite each other's count and skip the lock.
+   * Returns the lock expiry when this failure locked the account.
+   */
+  private async registerFailure(userId: string, username: string, ip: string | null, reason: string, actor: AuthUser): Promise<Date | undefined> {
+    const row = await this.db.updateTable('users').set({ failed_login_count: sql<number>`failed_login_count + 1` })
+      .where('id', '=', userId).returning('failed_login_count').executeTakeFirstOrThrow();
+    const count = row.failed_login_count;
     const lock = count % LOCKOUT_THRESHOLD === 0 ? new Date(Date.now() + lockDurationMs(count)) : undefined;
-    await this.db.updateTable('users').set({ failed_login_count: count, ...(lock ? { locked_until: lock } : {}) }).where('id', '=', userId).execute();
+    if (lock) await this.db.updateTable('users').set({ locked_until: lock }).where('id', '=', userId).execute();
     await this.recordAttempt(username, ip, false, reason);
     await this.audit.record({ action: 'login_failed', entityType: 'user', entityId: userId, reason: lock ? `${reason}; account locked until ${lock.toISOString()}` : reason }, actor);
+    return lock;
+  }
+
+  /** Ends every live session of the user that has not finished the MFA step. */
+  private async revokeMfaPendingSessions(userId: string, reason: string): Promise<void> {
+    await this.db.updateTable('user_sessions').set({ revoked_at: new Date(), revoked_reason: reason })
+      .where('user_id', '=', userId).where('revoked_at', 'is', null).where('mfa_verified_at', 'is', null).execute();
   }
 
   private async recordAttempt(username: string, ip: string | null, succeeded: boolean, reason: string | null): Promise<void> {
