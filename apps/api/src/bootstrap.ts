@@ -6,8 +6,15 @@ import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { ProblemFilter } from './common/problem.filter';
 import { requestId } from './common/request-id';
+import { parseTrustProxy, type TrustProxySetting } from './common/trust-proxy';
 
-export function configureApp(app: INestApplication): INestApplication {
+/**
+ * @param trustProxy which reverse proxies to believe about the client address (CP5-02). Defaults to
+ *   SMS_TRUST_PROXY; production Compose sets 1 so req.ip (rate limits, audit, sessions) is the real client
+ *   behind Caddy, not Caddy's container address.
+ */
+export function configureApp(app: INestApplication, trustProxy: TrustProxySetting = parseTrustProxy(process.env.SMS_TRUST_PROXY)): INestApplication {
+  (app.getHttpAdapter().getInstance() as { set(name: string, value: unknown): unknown }).set('trust proxy', trustProxy);
   app.setGlobalPrefix('api/v1');
   app.use(requestId);
   app.use(helmet());
