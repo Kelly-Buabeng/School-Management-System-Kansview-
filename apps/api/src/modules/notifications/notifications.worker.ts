@@ -34,7 +34,7 @@ export class NotificationsWorker implements OnApplicationBootstrap {
       { includeMetadata: true, batchSize: 1, pollingIntervalSeconds: opts.pollingIntervalSeconds ?? 2 },
       async ([job]) => {
         if (!job) return;
-        const outcome = await this.processor.process(job.data.recipientId, job.retryCount + 1);
+        const outcome = await this.processor.process(job.data.recipientId, job.retryCount + 1, job.data.sealedBody);
         if (outcome === 'retry') throw new RetryableDeliveryError(job.data.recipientId);
         return { outcome };
       },

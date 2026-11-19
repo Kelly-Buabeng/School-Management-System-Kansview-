@@ -13,6 +13,11 @@ export const SMS_MAX_ATTEMPTS = SMS_RETRY.retryLimit + 1;
 
 export interface SmsSendJob {
   recipientId: string;
+  /**
+   * For templates with sensitive placeholders (password reset): the real text, encrypted with FieldCrypto (base64).
+   * The database rows only hold a redacted body; the readable text exists only while the worker sends it (CP5-06).
+   */
+  sealedBody?: string;
 }
 
 /** Process role: only the worker process (SMS_PROCESS_ROLE=worker) runs job handlers. */
