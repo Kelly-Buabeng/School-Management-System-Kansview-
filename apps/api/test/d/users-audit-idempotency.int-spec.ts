@@ -6,6 +6,7 @@ import { authed, bootRealApp, createUser, login, type Session } from './support'
 import { RateLimiter } from '../../src/security/rate-limiter';
 import { generateTotpSecret } from '../../src/security/totp';
 import { IDEMPOTENCY_SERVICE, type IdempotencyService } from '../../src/security/idempotency';
+import { requestHash, STALE_CLAIM_MS } from '../../src/security/idempotency.impl';
 import { AUDIT_SERVICE, type AuditService } from '../../src/security/audit.service';
 import type { AuthUser } from '../../src/security/auth-user';
 import { permissionsForRoles } from '../../src/security/permissions';
@@ -165,5 +166,36 @@ describe('IdempotencyService', () => {
     expect(calls).toBe(1);
     expect(results.filter((r) => r.status === 'fulfilled' && !r.value.replayed)).toHaveLength(1);
     for (const r of results) if (r.status === 'rejected') expect((r.reason as { status: number }).status).toBe(409);
+  });
+
+  it('a claim abandoned by a crashed process is taken over by a retry with the same request (fresh claims still wait)', async () => {
+    const idem = ctx.app.get<IdempotencyService>(IDEMPOTENCY_SERVICE);
+    const route = 'POST /test';
+    const body = { amount: 5 };
+    // Simulate a process that committed its claim and then died (no response stored).
+    const insertClaim = (key: string, ageMs: number) => ctx.db.insertInto('idempotency_records')
+      .values({ key, user_id: user.id, route, request_hash: requestHash(route, body), created_at: new Date(Date.now() - ageMs) }).execute();
+    let calls = 0;
+    const fn = async () => ({ status: 201, body: { n: ++calls } });
+
+    await insertClaim('key-abandoned-0123456', STALE_CLAIM_MS + 5_000);
+    const r = await idem.run('key-abandoned-0123456', route, body, user, fn);
+    expect(r).toEqual({ status: 201, body: { n: 1 }, replayed: false });
+    expect((await idem.run('key-abandoned-0123456', route, body, user, fn)).replayed).toBe(true); // stored now
+    expect(calls).toBe(1);
+
+    // Different details on an abandoned claim are still refused; a fresh claim still means "in progress".
+    await insertClaim('key-abandoned-diffbody', STALE_CLAIM_MS + 5_000);
+    await expect(idem.run('key-abandoned-diffbody', route, { amount: 6 }, user, fn)).rejects.toMatchObject({ status: 422, code: 'IDEMPOTENCY_KEY_REUSED' });
+    await insertClaim('key-fresh-claim-012345', 1_000);
+    await expect(idem.run('key-fresh-claim-012345', route, body, user, fn)).rejects.toMatchObject({ status: 409 });
+    expect(calls).toBe(1);
+
+    // Two retries racing for the same abandoned claim: only one runs the business function.
+    await insertClaim('key-abandoned-race-0123', STALE_CLAIM_MS + 5_000);
+    const slow = async () => { calls++; await new Promise((res) => setTimeout(res, 50)); return { status: 201, body: { ok: true } }; };
+    const raced = await Promise.allSettled([1, 2, 3].map(() => idem.run('key-abandoned-race-0123', route, body, user, slow)));
+    expect(calls).toBe(2);
+    expect(raced.filter((x) => x.status === 'fulfilled' && !x.value.replayed)).toHaveLength(1);
   });
 });
