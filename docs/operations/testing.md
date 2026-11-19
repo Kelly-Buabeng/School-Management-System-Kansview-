@@ -6,7 +6,7 @@ Owner: Agent H.
 
 | Job | What it checks |
 |---|---|
-| checks | `pnpm install --frozen-lockfile` (cached), shared packages build, OpenAPI contract check, generated API types up to date, `pnpm -r typecheck`, unit tests (api, shared, web), shellcheck, Compose files and Caddyfile valid |
+| checks | `pnpm install --frozen-lockfile` (cached), shared packages build, OpenAPI contract check, generated API types up to date, `pnpm -r typecheck`, unit tests (api, shared, web), shellcheck, WAL encryption test (`infra/backup/test/encryption-test.sh --no-db`, CP5-05), Compose files and Caddyfile valid |
 | integration (matrix PostgreSQL 16 and 18) | `db` tests (migrations, guards, audit chain, seed), `test:rbac-coverage`, contract test (Nest routes vs `openapi.yaml`), all API integration tests |
 | web | production build, **bundle budget** (`scripts/check-bundle-size.mjs`: initial JS ≤ 250 KB gzip; currently 168 KB), Playwright smoke on mocks (`--trace off`) |
 | e2e | full stack: fresh seeded PostgreSQL 18 + real API + production web build, Playwright `--trace off` (`tests/e2e`) |
@@ -75,9 +75,3 @@ before go-live (expect higher numbers on a 4-core mini PC, still well inside 500
 ## Backups
 
 `scripts/restore-drill.sh` and `infra/backup/test/retention-test.sh`: see `restore-drill-2026-11-19.md`.
-
-`infra/backup/test/encryption-test.sh` (CP5-05) checks that nothing readable reaches the backup disk: WAL is written
-only as age files, a marker value from the database or uploaded files is not readable anywhere under the backup
-folder, `pg_basebackup` output is staged outside it, and a restore replays the encrypted WAL. Part A needs only `age`;
-part B also needs PostgreSQL binaries and a non-root user:
-`runuser -u postgres -- env PATH=$PATH PG_BIN=/usr/lib/postgresql/16/bin infra/backup/test/encryption-test.sh`.

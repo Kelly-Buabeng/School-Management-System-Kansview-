@@ -148,3 +148,9 @@ docker compose run --rm --no-deps -v kansview-sms_pgdata:/var/lib/postgresql --e
 
 Run `scripts/restore-drill.sh` every term (results: `restore-drill-<date>.md`) and a full CP6-style rehearsal on a
 spare machine once a year, timing every step against the 4-hour RTO.
+
+`infra/backup/test/encryption-test.sh` (CP5-05) checks that nothing readable reaches the backup disk: WAL is written
+only as age files, a marker value from the database or uploaded files is not readable anywhere under the backup
+folder, `pg_basebackup` output is staged outside it, and a restore replays the encrypted WAL. Part A (CI) needs only
+`age`; part B also needs PostgreSQL binaries and a non-root user:
+`runuser -u postgres -- env PATH=$PATH PG_BIN=/usr/lib/postgresql/16/bin infra/backup/test/encryption-test.sh`.
