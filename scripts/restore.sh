@@ -65,6 +65,7 @@ for a in "${args[@]}"; do quoted+=" $(printf '%q' "$a")"; done
 run_backup "set -e
   restore.sh --target-dir /var/lib/postgresql/18/docker $files_opt $quoted
   chown -R 999:999 /var/lib/postgresql/18/docker
+  if [ -d /var/lib/postgresql/18/docker.restore-wal ]; then chown -R 999:999 /var/lib/postgresql/18/docker.restore-wal; fi
   chown -R 1000:1000 /data/storage-rw"
 
 echo "[4/5] starting the database and replaying WAL (can take a few minutes)"
@@ -75,6 +76,8 @@ for _ in $(seq 1 720); do
   sleep 5
 done
 [[ "$state" == "f" ]] || { echo "Recovery did not finish. Check: docker compose logs postgres" >&2; exit 1; }
+# The decrypted WAL used for the replay is not needed any more (CP5-05: do not leave readable WAL lying around).
+run_backup "rm -rf /var/lib/postgresql/18/docker.restore-wal"
 
 echo "[5/5] checks"
 dc exec -T postgres psql -U postgres -d sms -XAt <<'SQL'

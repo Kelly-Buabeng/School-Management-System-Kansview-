@@ -40,7 +40,7 @@ if (( from_offsite )); then
   require_cmd rclone
   [[ -n "${RCLONE_REMOTE:-}" ]] || { log error "RCLONE_REMOTE is not set"; exit 1; }
   cache="$BACKUP_ROOT/restore-cache"
-  mkdir -p "$cache/base" "$cache/wal-enc" "$cache/wal"
+  mkdir -p "$cache/base" "$cache/wal-enc"
   if [[ "$backup" == "latest" ]]; then
     backup="$(rclone lsf --dirs-only "$RCLONE_REMOTE/base" | tr -d '/' | grep -E '^[0-9]{8}T[0-9]{6}Z$' | sort | tail -n1)"
     [[ -n "$backup" ]] || { log error "no backups found off-site at $RCLONE_REMOTE/base"; exit 1; }
@@ -49,14 +49,10 @@ if (( from_offsite )); then
   rclone copy --retries 5 "$RCLONE_REMOTE/base/$backup" "$cache/base/$backup"
   if (( use_wal )); then
     log info "downloading WAL archive from off-site storage"
+    # Kept encrypted here (this cache is on the backup disk); decrypted below next to the new data folder.
     rclone copy --retries 5 "$RCLONE_REMOTE/wal" "$cache/wal-enc"
-    for f in "$cache"/wal-enc/*.age; do
-      [[ -e "$f" ]] || continue
-      out="$cache/wal/$(basename "${f%.age}")"
-      [[ -f "$out" ]] || age_decrypt "$f" "$out"
-    done
   fi
-  BASE_DIR="$cache/base"; WAL_DIR="$cache/wal"
+  BASE_DIR="$cache/base"; WAL_DIR="$cache/wal-enc"
 fi
 
 if (( list )); then
@@ -94,7 +90,28 @@ mkdir -p "$target/pg_wal"; chmod 700 "$target/pg_wal"
 [[ -f "$src/backup_manifest.age" ]] && age_decrypt "$src/backup_manifest.age" "$target/backup_manifest.restored"
 
 if (( use_wal )); then
-  wal_abs="$(cd "$WAL_DIR" && pwd)"
+  # CP5-05: the WAL archive is encrypted. The segments this restore needs (from the backup's start segment on) are
+  # decrypted next to the new data folder, on the server's own disk, never on the backup disk, and PostgreSQL reads
+  # them from there. Neither the PostgreSQL container nor restore_command ever needs the private key.
+  # Formats: <name>.age (archive-wal.sh), <name>.gz.age (older off-site copies), <name>.gz (older local archive).
+  wal_abs="$(realpath -m -- "${target%/}.restore-wal")"
+  under_dir "$wal_abs" "$BACKUP_ROOT" && { log error "restore folder $wal_abs must not be on the backup disk"; exit 1; }
+  rm -rf "$wal_abs"; (umask 077 && mkdir -p "$wal_abs")
+  start_wal="$(sed -n 's/.*"startWal":"\([0-9A-F]\{24\}\)".*/\1/p' "$src/meta.json")"
+  wal_count=0
+  for f in "$WAL_DIR"/*; do
+    [[ -f "$f" ]] || continue
+    base="$(basename "$f")"; seg="${base%.age}"; seg="${seg%.gz}"
+    [[ "$seg" =~ ^[0-9A-F]{8}\.history$ || "$seg" =~ ^[0-9A-F]{24}(\.[0-9A-F]{8}\.backup)?$ ]] || continue
+    [[ "$seg" =~ ^[0-9A-F]{24} && -n "$start_wal" && "${seg:0:24}" < "$start_wal" ]] && continue
+    case "$base" in
+      *.age) age_decrypt "$f" "$wal_abs/$seg.gz" ;;
+      *.gz) cp "$f" "$wal_abs/$seg.gz" ;;
+      *) cp "$f" "$wal_abs/$seg" ;;
+    esac
+    wal_count=$((wal_count + 1))
+  done
+  log info "prepared $wal_count archived WAL file(s) for replay in $wal_abs"
   : > "$target/recovery.signal"
   {
     echo ""

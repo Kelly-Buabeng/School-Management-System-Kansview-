@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Owner: Agent H. Copies encrypted backups to off-site S3-compatible storage with rclone, when the internet is up.
-#  1. Encrypts new WAL segments (age) into the staging folder and *moves* them to <remote>/wal/.
+#  1. Stages new WAL segments (already age-encrypted by archive-wal.sh) and *moves* them to <remote>/wal/.
 #  2. Copies every complete nightly backup folder (already encrypted) to <remote>/base/<id>/ (never re-uploads).
 #  3. Mirrors local retention on the remote, but only when at least MIN_LOCAL_BACKUPS exist locally, so an empty or
 #     replaced local disk can never wipe the off-site copies.
@@ -30,6 +30,16 @@ started="$(now_iso)"
 
 # ---- 1. stage encrypted WAL (works offline; upload happens below) ----
 staged=0
+# archive-wal.sh already encrypts every segment ("<name>.age", age of gzip): copy as is.
+for f in "$WAL_DIR"/*.age; do
+  [[ -e "$f" ]] || continue
+  name="$(basename "$f")"
+  [[ -e "$STAGING_DIR/wal-done/$name" ]] && continue
+  cp "$f" "$STAGING_DIR/wal/.$name.tmp" && mv "$STAGING_DIR/wal/.$name.tmp" "$STAGING_DIR/wal/$name"
+  : > "$STAGING_DIR/wal-done/$name"
+  staged=$((staged + 1))
+done
+# Plain gzip segments written by older versions of archive-wal.sh (until they age out).
 for f in "$WAL_DIR"/*.gz; do
   [[ -e "$f" ]] || continue
   name="$(basename "$f")"

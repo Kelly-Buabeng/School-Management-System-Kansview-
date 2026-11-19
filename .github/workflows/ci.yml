@@ -45,9 +45,11 @@ jobs:
       - name: Unit tests (shared, web)
         run: pnpm --filter @sms/shared --filter @sms/web test
       - name: Shell scripts (shellcheck)
-        run: shellcheck -x -S warning infra/backup/bin/*.sh scripts/*.sh infra/postgres/initdb/*.sh
+        run: shellcheck -x -S warning infra/backup/bin/*.sh scripts/*.sh infra/postgres/initdb/*.sh infra/backup/test/*.sh
       - name: Install age (generate-secrets.sh creates the backup encryption key pair)
         run: sudo apt-get update -q && sudo apt-get install -y -q age
+      - name: WAL archive is encrypted before it reaches the backup disk (CP5-05)
+        run: infra/backup/test/encryption-test.sh --no-db
       - name: Compose files are valid
         run: |
           bash scripts/generate-secrets.sh >/dev/null   # throwaway secrets, only so Compose can resolve the files
@@ -186,9 +188,11 @@ jobs:
         run: docker buildx build --load -f infra/docker/web.Dockerfile -t kansview/sms-web:ci --build-arg SMS_APP_VERSION=${{ github.sha }} .
       - name: Build backup image
         run: docker buildx build --load -f infra/docker/backup.Dockerfile -t kansview/sms-backup:ci .
+      - name: Build postgres image (official image + age for WAL encryption)
+        run: docker buildx build --load -f infra/docker/postgres.Dockerfile -t kansview/sms-postgres:ci infra/docker
       - name: Images run as non-root
         run: |
-          for i in sms-api sms-web sms-backup; do
+          for i in sms-api sms-web sms-backup sms-postgres; do
             u=$(docker image inspect --format '{{.Config.User}}' kansview/$i:ci); echo "$i user=$u"
             [ -n "$u" ] && [ "$u" != "root" ] && [ "$u" != "0" ] || { echo "::error::$i runs as root"; exit 1; }
           done
@@ -204,6 +208,8 @@ jobs:
         with: { scan-type: image, image-ref: kansview/sms-web:ci, severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1", skip-setup-trivy: true }
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with: { scan-type: image, image-ref: kansview/sms-backup:ci, severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1", skip-setup-trivy: true }
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with: { scan-type: image, image-ref: kansview/sms-postgres:ci, severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1", skip-setup-trivy: true }
       - name: Trivy config scan (Dockerfiles, Compose)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with: { scan-type: config, scan-ref: infra, severity: "HIGH,CRITICAL", exit-code: "1", skip-setup-trivy: true }

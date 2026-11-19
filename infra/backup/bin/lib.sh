@@ -9,6 +9,9 @@ set -euo pipefail
 : "${WAL_DIR:=$BACKUP_ROOT/wal}"            # continuous WAL archive (written by archive-wal.sh in the postgres container)
 : "${STAGING_DIR:=$BACKUP_ROOT/offsite-staging}"
 : "${STATUS_DIR:=$BACKUP_ROOT/status}"      # JSON status files, read by GET /api/v1/system/status
+# Readable pg_basebackup output is staged here and encrypted from here, never on the backup disk (CP5-05).
+# Must be on the server's own (encrypted) system disk; Compose mounts the backup_staging volume.
+: "${PLAIN_WORK_DIR:=/staging}"
 : "${FILES_DIR:=/data/storage}"             # uploaded files volume (read-only mount)
 : "${AGE_RECIPIENTS_FILE:=/run/secrets/backup_age_recipients}"
 : "${AGE_IDENTITY_FILE:=/run/secrets/backup_age_identity}"
@@ -74,6 +77,13 @@ require_cmd() { for c in "$@"; do command -v "$c" >/dev/null 2>&1 || { log error
 age_encrypt() { # age_encrypt <in|-> <out>
   [[ -r "$AGE_RECIPIENTS_FILE" ]] || { log error "backup encryption key (age recipients) not readable at $AGE_RECIPIENTS_FILE"; return 1; }
   age --encrypt --recipients-file "$AGE_RECIPIENTS_FILE" --output "$2" "$1"
+}
+
+# under_dir <path> <dir>: true when <path> is <dir> or inside it (after resolving symlinks and ..).
+under_dir() {
+  local p d
+  p="$(realpath -m -- "$1")"; d="$(realpath -m -- "$2")"
+  [[ "$p" == "$d" || "$p" == "$d/"* ]]
 }
 
 age_decrypt() { # age_decrypt <in> <out|->

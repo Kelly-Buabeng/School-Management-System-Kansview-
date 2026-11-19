@@ -126,7 +126,9 @@ services:
 
   postgres:
     <<: *hardening
-    image: postgres:18.7-trixie@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
+    # The pinned official postgres:18.7-trixie image plus age, so WAL is encrypted before it reaches the backup disk.
+    image: ${SMS_IMAGE_PREFIX:-kansview}/sms-postgres:${SMS_VERSION:-latest}
+    build: { context: ../docker, dockerfile: postgres.Dockerfile }
     user: "999:999"
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]
     environment:
@@ -135,14 +137,15 @@ services:
       POSTGRES_INITDB_ARGS: "--data-checksums --encoding=UTF8 --locale=C.UTF-8"
       SMS_DB_NAME: sms
       TZ: Africa/Accra
-    secrets: [db_superuser_password, db_owner_password, db_app_password, db_backup_password]
+      WAL_AGE_RECIPIENTS_FILE: /run/secrets/backup_age_recipients   # public key only: archive-wal.sh encrypts WAL with it
+    secrets: [db_superuser_password, db_owner_password, db_app_password, db_backup_password, backup_age_recipients]
     volumes:
       - pgdata:/var/lib/postgresql        # PostgreSQL 18 image layout: data in /var/lib/postgresql/18/docker
       - ../postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ../postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
       - ../postgres/initdb:/docker-entrypoint-initdb.d:ro
       - ../backup/bin/archive-wal.sh:/usr/local/bin/archive-wal.sh:ro
-      - ${SMS_BACKUP_DIR:-/srv/sms-backup}:/backups   # second disk: WAL archive is written here
+      - ${SMS_BACKUP_DIR:-/srv/sms-backup}:/backups   # second disk: the encrypted WAL archive is written here
     tmpfs:
       - /var/run/postgresql:uid=999,gid=999,mode=0775
       - /tmp:size=64m
@@ -176,10 +179,14 @@ services:
       OFFSITE_PUSH_URL_FILE: /run/secrets/offsite_push_url
       DISK_PUSH_URL_FILE: /run/secrets/disk_push_url
       DISK_MIN_FREE_PERCENT: ${SMS_DISK_MIN_FREE_PERCENT:-15}
+      PLAIN_WORK_DIR: /staging
     secrets: [db_backup_password, backup_age_recipients, rclone_conf, backup_push_url, offsite_push_url, disk_push_url]
     volumes:
       - ${SMS_BACKUP_DIR:-/srv/sms-backup}:/backups
       - storage:/data/storage:ro
+      # pg_basebackup output is readable until it is encrypted: staged on the system disk (a Docker volume), never on
+      # the backup disk, and removed as soon as the encrypted copy is written (CP5-05).
+      - backup_staging:/staging
     tmpfs: ["/tmp:size=256m"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -220,6 +227,7 @@ networks:
 volumes:
   pgdata: {}
   storage: {}
+  backup_staging: {}
   caddy_data: {}
   caddy_config: {}
   clamav_db: {}

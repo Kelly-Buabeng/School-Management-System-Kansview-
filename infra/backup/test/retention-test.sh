@@ -4,15 +4,17 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
-export BACKUP_ROOT="$work" BASE_DIR="$work/base" WAL_DIR="$work/wal" STATUS_DIR="$work/status" STAGING_DIR="$work/staging"
-mkdir -p "$BASE_DIR" "$WAL_DIR"
+export BACKUP_ROOT="$work" BASE_DIR="$work/base" WAL_DIR="$work/wal" STATUS_DIR="$work/status" STAGING_DIR="$work/staging" PLAIN_WORK_DIR="$work/plain-staging"
+mkdir -p "$BASE_DIR" "$WAL_DIR" "$WAL_DIR/.sha256"
 for i in $(seq 0 399); do
   id="$(date -u -d "today - $i days" +%Y%m%dT013000Z)"
   mkdir -p "$BASE_DIR/$id"
   wal=$(printf '00000001%016X' $((1000 - i)))
   echo "{\"backupId\":\"$id\",\"startWal\":\"$wal\"}" > "$BASE_DIR/$id/meta.json"
 done
-for n in $(seq 990 1000); do : > "$WAL_DIR/$(printf '00000001%016X' "$n").gz"; done
+# Encrypted segments (archive-wal.sh) with their checksum files, plus older plain .gz segments from before CP5-05.
+for n in $(seq 990 1000); do seg="$(printf '00000001%016X' "$n")"; : > "$WAL_DIR/$seg.age"; echo x > "$WAL_DIR/.sha256/$seg"; done
+for n in $(seq 985 991); do : > "$WAL_DIR/$(printf '00000001%016X' "$n").gz"; done
 "$here/../bin/prune-backups.sh" > "$work/out" 2>/dev/null
 kept=$(ls "$BASE_DIR" | wc -l)
 daily=$(grep -c ' daily$' "$work/out"); weekly=$(grep -c ' weekly$' "$work/out"); monthly=$(grep -c ' monthly$' "$work/out")
@@ -20,8 +22,10 @@ echo "kept=$kept daily=$daily weekly=$weekly monthly=$monthly wal_left=$(ls "$WA
 # 7 daily; weekly/monthly overlap with newer ones, so total is between 13 and 23.
 [[ $daily -eq 7 ]] || { echo "FAIL daily"; exit 1; }
 (( kept >= 13 && kept <= 23 )) || { echo "FAIL kept $kept"; exit 1; }
-# Oldest daily is 6 days ago -> its start WAL is 1000-6 = 994; WAL 990..993 must be gone, 994..1000 kept.
+# Oldest daily is 6 days ago -> its start WAL is 1000-6 = 994; WAL 990..993 (and every old .gz) must be gone, 994..1000 kept.
 [[ $(ls "$WAL_DIR" | wc -l) -eq 7 ]] || { echo "FAIL wal cleanup"; exit 1; }
+[[ $(ls "$WAL_DIR"/*.age | wc -l) -eq 7 ]] || { echo "FAIL encrypted wal kept"; exit 1; }
+[[ $(ls "$WAL_DIR/.sha256" | wc -l) -eq 7 ]] || { echo "FAIL wal checksum cleanup"; exit 1; }
 oldest=$(ls "$BASE_DIR" | sort | head -n1)
 echo "oldest kept: $oldest"
 echo "RETENTION TEST PASSED"
