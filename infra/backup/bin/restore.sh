@@ -111,7 +111,7 @@ fi
 
 if [[ -n "$files_target" ]]; then
   if [[ -f "$src/files.tar.gz.age" ]]; then
-    if [[ -d "$files_target" && -n "$(ls -A "$files_target" 2>/dev/null)" ]]; then
+    if [[ -d "$files_target" && -n "$(ls -A "$files_target" 2>/dev/null | grep -v "^\.before-restore-" || true)" ]]; then
       log error "files folder $files_target is not empty; move it away first"; exit 1
     fi
     mkdir -p "$files_target"
