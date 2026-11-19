@@ -1,0 +1,18 @@
+# gitleaks configuration: the default rules plus a narrow allowlist of known, documented test values.
+# Each entry is an exact literal that is NOT a secret; anything else still fails CI.
+title = "Kansview SMS gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Development-only fixtures that are intentionally public"
+regexTarget = "secret"
+regexes = [
+  # Dev-only TOTP secrets of the seeded admin/bursar accounts (fake school data only),
+  # documented in db/seeds/README.md and used by tests/e2e/support/api.ts.
+  '''^JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP$''',
+  '''^KRSXG5CTMVRXEZLUKRSXG5CTMVRXEZLU$''',
+  # Made-up Idempotency-Key used in apps/api/test/d/users-audit-idempotency.int-spec.ts.
+  '''^key-0123456789abcdef$''',
+]

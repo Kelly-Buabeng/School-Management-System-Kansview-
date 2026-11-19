@@ -170,7 +170,7 @@ jobs:
       - name: gitleaks (secrets in history)
         run: |
           curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz gitleaks
-          ./gitleaks detect --source . --redact --verbose --exit-code 1
+          ./gitleaks detect --source . --config .github/gitleaks.toml --redact --verbose --exit-code 1
 
   images:
     name: build images + Trivy scan
