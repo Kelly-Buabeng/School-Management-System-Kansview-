@@ -55,3 +55,19 @@ describe('masking', () => {
     expect(maskChanges(undefined)).toBeNull();
   });
 });
+
+describe('RateLimiter.assertUnder / record (CP5-02)', () => {
+  it('checks without counting, and counts only what is recorded', () => {
+    const rl = new RateLimiter();
+    const rule = { limit: 2, windowMs: 60_000 };
+    for (let i = 0; i < 5; i++) rl.assertUnder('k', rule, undefined, 1_000);
+    rl.record('k', 1_000);
+    rl.assertUnder('k', rule, undefined, 1_000);
+    rl.record('k', 2_000);
+    const headers: Record<string, string> = {};
+    expect(() => rl.assertUnder('k', rule, { setHeader: (n, v) => { headers[n] = v; } }, 3_000)).toThrow(/Too many attempts/);
+    expect(headers['Retry-After']).toBe('58');
+    expect(() => rl.assertUnder('k', rule, undefined, 61_500)).not.toThrow();
+    rl.onModuleDestroy();
+  });
+});

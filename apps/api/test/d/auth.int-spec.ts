@@ -103,6 +103,19 @@ describe('login', () => {
     expect(last!.headers['retry-after']).toBeDefined();
   });
 
+  it('successful sign-ins from one address do not use up the per-address limit; failures still do (CP5-02)', async () => {
+    await createUser(ctx.db, { username: 'reg.staffroom', roles: ['REGISTRAR'] });
+    const ok: number[] = [];
+    // a whole staffroom behind one address signing in on a Monday morning
+    for (let i = 0; i < 55; i++) ok.push((await http().post('/api/v1/auth/login').send({ username: 'reg.staffroom', password: PASSWORD })).status);
+    expect(ok.filter((s) => s !== 200)).toEqual([]);
+    // 50 failed logins with different usernames from the same address still trip the per-address limit
+    const bad: number[] = [];
+    for (let i = 0; i < 51; i++) bad.push((await http().post('/api/v1/auth/login').send({ username: `ghost.wifi${i}`, password: 'wrong guess' })).status);
+    expect(bad.slice(0, 50).filter((s) => s === 429)).toEqual([]);
+    expect(bad[50]).toBe(429);
+  });
+
   it('rejects unknown fields (strict body) and disabled accounts', async () => {
     expect((await http().post('/api/v1/auth/login').send({ username: 'a', password: 'b', roles: ['ADMIN'] })).status).toBe(400);
     await createUser(ctx.db, { username: 'reg.off', roles: ['REGISTRAR'] });
