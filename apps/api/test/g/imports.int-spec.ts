@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { sql } from 'kysely';
 import { BALANCE_HEADERS, STAFF_HEADERS, STUDENT_HEADERS, csvFrom, generateStudentRows, messyStudentsWorkbook } from './fixtures';
 import { count, idemKey, setupG, uploadAndValidate, USER_IDS, type GCtx } from './helpers';
+import { xlsxBomb } from './zip-bomb';
 
 const RANDOM_ID = '01900000-0000-7000-8000-00000000beef';
 
@@ -204,6 +205,19 @@ describe('imports (Agent G)', () => {
       await ctx.http().post('/api/v1/imports').field('type', 'pupils').attach('file', csvFrom([STUDENT_HEADERS]), 'x.csv').expect(400);
       const bad = await ctx.http().post('/api/v1/imports').field('type', 'students_guardians').attach('file', Buffer.from('just some words\nnothing here'), 'x.csv').expect(400);
       expect(bad.body.code).toBe('IMPORT_FILE_UNREADABLE');
+    });
+
+    it('a zip-bomb workbook is refused with 422 problem+json and creates no job (CP5-03)', async () => {
+      ctx.as('REGISTRAR');
+      const jobs = async () => (await sql<{ n: number }>`SELECT count(*)::int AS n FROM import.jobs`.execute(ctx.k)).rows[0]!.n;
+      const jobsBefore = await jobs();
+      for (const mode of ['honest', 'lying'] as const) {
+        const res = await ctx.http().post('/api/v1/imports').field('type', 'students_guardians').attach('file', await xlsxBomb(120, mode), 'pupils.xlsx');
+        expect(res.status).toBe(422);
+        expect(res.headers['content-type']).toContain('application/problem+json');
+        expect(res.body.code).toBe('IMPORT_FILE_UNREADABLE');
+      }
+      expect(await jobs()).toBe(jobsBefore);
     });
   });
 

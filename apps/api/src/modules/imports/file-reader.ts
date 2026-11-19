@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { AppError } from '../../common/app-error';
 import { headerLookup, normaliseHeader, type ImportType } from './import-columns';
+import { assertSafeImportXlsx } from './xlsx-guard';
 
 /** A raw cell as stored in import.rows.raw: dates already turned into 'YYYY-MM-DD' strings. */
 export type RawCell = string | number | boolean | null;
@@ -122,6 +123,8 @@ export function cellToRaw(v: ExcelJS.CellValue): RawCell {
 }
 
 async function readXlsxGrid(buffer: Buffer): Promise<{ sheetName: string; grid: RawCell[][] }> {
+  // CP5-03: ExcelJS inflates every part into memory, so zip bombs must be refused before it sees the file.
+  assertSafeImportXlsx(buffer);
   const wb = new ExcelJS.Workbook();
   try {
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
