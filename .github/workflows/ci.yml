@@ -46,6 +46,8 @@ jobs:
         run: pnpm --filter @sms/shared --filter @sms/web test
       - name: Shell scripts (shellcheck)
         run: shellcheck -x -S warning infra/backup/bin/*.sh scripts/*.sh infra/postgres/initdb/*.sh
+      - name: Install age (generate-secrets.sh creates the backup encryption key pair)
+        run: sudo apt-get update -q && sudo apt-get install -y -q age
       - name: Compose files are valid
         run: |
           bash scripts/generate-secrets.sh >/dev/null   # throwaway secrets, only so Compose can resolve the files
