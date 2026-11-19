@@ -33,7 +33,10 @@ export interface Ctx {
 
 export async function setupC(): Promise<Ctx> {
   const db = await createTestDatabase('c_fin');
-  const k = new Kysely<DB>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: db.url, max: 4 }) }) });
+  const pool = new pg.Pool({ connectionString: db.url, max: 4 });
+  // db.drop() uses DROP DATABASE ... WITH (FORCE); the server may terminate a client that is still closing (57P01).
+  pool.on('error', () => {});
+  const k = new Kysely<DB>({ dialect: new PostgresDialect({ pool }) });
   for (const [name, id] of Object.entries(USERS)) {
     const role = name.replace(/\d$/, '');
     await sql`INSERT INTO app.users (id, username, full_name, password_hash, roles, must_change_password)

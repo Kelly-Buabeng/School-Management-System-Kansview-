@@ -35,7 +35,10 @@ export interface GCtx {
 export async function setupG(opts: { capacity?: number } = {}): Promise<GCtx> {
   process.env.SMS_FILE_STORAGE_DIR = mkdtempSync(join(tmpdir(), 'g-files-'));
   const db = await createTestDatabase('g_t');
-  const k = new Kysely<DB>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: db.url, max: 4 }) }) });
+  const pool = new pg.Pool({ connectionString: db.url, max: 4 });
+  // db.drop() uses DROP DATABASE ... WITH (FORCE); the server may terminate a client that is still closing (57P01).
+  pool.on('error', () => {});
+  const k = new Kysely<DB>({ dialect: new PostgresDialect({ pool }) });
   for (const [role, id] of Object.entries(USER_IDS)) {
     await sql`INSERT INTO app.users (id, username, full_name, password_hash, roles, must_change_password)
               VALUES (${id}::uuid, ${`g-${role.toLowerCase()}`}, ${`Test ${role}`}, 'x', ARRAY[${role}]::text[], false)`.execute(k);

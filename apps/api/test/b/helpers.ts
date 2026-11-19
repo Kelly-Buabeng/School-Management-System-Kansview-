@@ -30,7 +30,10 @@ export interface Ctx {
 /** Fresh migrated database + app. Seeds one users row per role so FK columns (recorded_by etc.) accept the fake users. */
 export async function setupB(): Promise<Ctx> {
   const db = await createTestDatabase('b_t');
-  const k = new Kysely<DB>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: db.url, max: 4 }) }) });
+  const pool = new pg.Pool({ connectionString: db.url, max: 4 });
+  // db.drop() uses DROP DATABASE ... WITH (FORCE); the server may terminate a client that is still closing (57P01).
+  pool.on('error', () => {});
+  const k = new Kysely<DB>({ dialect: new PostgresDialect({ pool }) });
   for (const [role, id] of Object.entries(USER_IDS)) {
     await sql`INSERT INTO app.users (id, username, full_name, password_hash, roles, must_change_password)
               VALUES (${id}::uuid, ${`test-${role.toLowerCase()}`}, ${`Test ${role}`}, 'x', ARRAY[${role}]::text[], false)
