@@ -75,3 +75,8 @@ before go-live (expect higher numbers on a 4-core mini PC, still well inside 500
 ## Backups
 
 `scripts/restore-drill.sh` and `infra/backup/test/retention-test.sh`: see `restore-drill-2026-11-19.md`.
+
+## Reverse proxy
+
+`infra/caddy/test/client-ip-test.sh` runs the real Caddyfile in front of a stand-in API and checks that a client
+cannot choose the address the API sees (CP5-02), and that Compose sets `SMS_TRUST_PROXY`.

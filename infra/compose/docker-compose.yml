@@ -38,6 +38,9 @@ x-api-env: &api-env
   SMS_CLAMAV_HOST: clamav
   SMS_SMS_PROVIDER: ${SMS_SMS_PROVIDER:-mock}
   SMS_LOG_LEVEL: ${SMS_LOG_LEVEL:-info}
+  # CP5-02: requests reach the api only through Caddy (one hop). Trusting that hop makes rate limits, audit events,
+  # sessions and login attempts use the staff device's address instead of Caddy's container address.
+  SMS_TRUST_PROXY: "1"
 
 services:
   caddy:

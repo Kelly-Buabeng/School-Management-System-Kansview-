@@ -5,7 +5,7 @@
 #   SMS_TLS             "internal"  -> Caddy's own certificate authority (LAN / no internet). Install the root
 #                                      certificate on staff devices once (docs/operations/deployment-guide.md).
 #                       an e-mail   -> public Let's Encrypt/ZeroSSL certificate (domain must be reachable on ports 80/443)
-#   SMS_API_UPSTREAM    default api:3000
+#   SMS_API_UPSTREAM    default api:3000 (the api must run with SMS_TRUST_PROXY=1: it trusts this one hop for the client IP)
 #   SMS_CSP_STYLE_SRC   default 'self' 'unsafe-inline': Mantine UI injects <style> elements at runtime. Scripts stay
 #                       strictly 'self'. Tighten to 'self' once the web app passes a CSP nonce to Mantine.
 #
@@ -72,6 +72,9 @@ http://{$SMS_DOMAIN:localhost} {
 		}
 		reverse_proxy {$SMS_API_UPSTREAM:api:3000} {
 			header_up X-Request-Id {http.request.uuid}
+			# CP5-02: the API trusts exactly one proxy hop (SMS_TRUST_PROXY=1) and reads the client address from here.
+			# Replace, never append, so nothing the browser sends in X-Forwarded-For can reach the API.
+			header_up X-Forwarded-For {client_ip}
 			transport http {
 				read_timeout 120s
 			}
@@ -84,6 +87,9 @@ http://{$SMS_DOMAIN:localhost} {
 		header Cache-Control "no-store"
 		reverse_proxy {$SMS_API_UPSTREAM:api:3000} {
 			header_up X-Request-Id {http.request.uuid}
+			# CP5-02: the API trusts exactly one proxy hop (SMS_TRUST_PROXY=1) and reads the client address from here.
+			# Replace, never append, so nothing the browser sends in X-Forwarded-For can reach the API.
+			header_up X-Forwarded-For {client_ip}
 			# Readiness-aware: do not send traffic to an api that is still migrating/starting.
 			health_uri /api/v1/health/ready
 			health_interval 15s
