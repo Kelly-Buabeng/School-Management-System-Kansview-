@@ -4,9 +4,13 @@
 #   docker build -f infra/docker/backup.Dockerfile -t kansview/sms-backup:dev .
 ARG PG_IMAGE=postgres:18.7-trixie@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
 FROM ${PG_IMAGE}
+# apt-get upgrade pulls Debian security fixes newer than the pinned base image (e.g. zlib1g CVE-2026-85091).
+# gosu (from the base image's entrypoint, built with an old Go toolchain) is removed: this image runs as
+# the postgres user with its own ENTRYPOINT/CMD and never switches users.
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends age rclone curl ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* /usr/local/bin/gosu
 COPY --chown=root:root --chmod=0755 infra/backup/bin/ /opt/kansview-backup/bin/
 ENV BACKUP_ROOT=/backups FILES_DIR=/data/storage TZ=Africa/Accra \
     PGHOST=postgres PGPORT=5432 PGUSER=sms_backup PGDATABASE=sms \
