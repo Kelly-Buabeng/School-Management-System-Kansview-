@@ -17,3 +17,5 @@ Small interface clean-ups agreed in change requests. None blocks a checkpoint; e
 | 11 | Agent H report | A system-status screen in the web app reading `GET /system/status` (backups, disk, queue) for the administrator | E |
 | 12 | Agent H report | Run `scripts/restore.sh` end to end and build the backup image during the CP6 rehearsal | H |
 | 13 | Agent E/orchestrator | `GET /dashboard` to return today's payments so the "Collected today" tile shows in real mode; student list to return a balance for fee badges | B / C |
+| 14 | Checkpoint runs | `scripts/e2e.sh` should rebuild `apps/api/dist` / `apps/web/dist` when sources are newer (or always in CI), not only with `E2E_REBUILD=1` | H |
+| 15 | Checkpoint runs | Run the EICAR upload check against the real ClamAV container (only mocked so far) | H / D |
