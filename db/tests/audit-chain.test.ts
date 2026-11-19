@@ -13,6 +13,7 @@ afterAll(async () => db?.drop());
 describe('audit hash chain', () => {
   it('links concurrent inserts into one linear chain and verify_chain reports it intact', async () => {
     const pool = new pg.Pool({ connectionString: db.url, max: 10 });
+    pool.on('error', () => {}); // idle connections are terminated by DROP DATABASE ... WITH (FORCE)
     try {
       await Promise.all(Array.from({ length: 40 }, async (_, i) => {
         const c = await pool.connect();

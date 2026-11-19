@@ -77,7 +77,9 @@ describe('seed generator', () => {
   it("Agent C's LedgerService agrees with the seeded ledger", async () => {
     const { LedgerServiceImpl } = await import('../../apps/api/src/modules/finance/ledger.service');
     const { FinanceStore } = await import('../../apps/api/src/modules/finance/finance-store');
-    const kdb = new Kysely<any>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: db.url, max: 2 }) }) });
+    const pool = new pg.Pool({ connectionString: db.url, max: 2 });
+    pool.on('error', () => {}); // idle connections are terminated by DROP DATABASE ... WITH (FORCE)
+    const kdb = new Kysely<any>({ dialect: new PostgresDialect({ pool }) });
     try {
       const ledger = new LedgerServiceImpl(kdb as never, new FinanceStore(kdb as never));
       const sample = (await c.query(`
