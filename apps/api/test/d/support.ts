@@ -21,7 +21,10 @@ export async function bootRealApp(dbUrl: string): Promise<{ app: INestApplicatio
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = configureApp(moduleRef.createNestApplication({ logger: false }));
   await app.init();
-  const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: dbUrl, max: 3 }) }) });
+  const pool = new pg.Pool({ connectionString: dbUrl, max: 3 });
+  // The test database is dropped WITH (FORCE) at teardown; ignore the server terminating a closing client (57P01).
+  pool.on('error', () => {});
+  const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool }) });
   const crypto = app.get<FieldCryptoEngine>(FIELD_CRYPTO);
   return { app, db, crypto, close: async () => { await db.destroy(); await app.close(); } };
 }
