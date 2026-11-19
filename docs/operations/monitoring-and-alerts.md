@@ -14,6 +14,7 @@ Owner: Agent H.
 | Off-site copy | `offsite.json` status, `OFFSITE_PUSH_URL_FILE` push | success, or waiting < 36 h | failure |
 | Disk space | scheduler `df` every 10 min (backup disk + data volume); `/system/status` → `disks` | ≥ 15 % free | < 15 % free |
 | Queue backlog | `/system/status` → `queue.pending`, `queue.failed` (pg-boss) | failed = 0 | failed jobs in the last 7 days |
+| Audit trail integrity | worker job `audit-verify-chain` daily at 03:47; `/system/status` → `auditChain`; worker log `AUDIT CHAIN BROKEN` | `intact`, checked < 26 h ago | `broken` (possible tampering), or no check for 26 h |
 | Slow queries | PostgreSQL log (`log_min_duration_statement = 500ms`) | rare | many per hour |
 | TLS certificate | Uptime Kuma HTTPS monitor (certificate expiry notification) | > 14 days | < 14 days (cloud only; the LAN CA renews itself) |
 
@@ -28,12 +29,24 @@ Owner: Agent H.
   "backup": { "lastBackupAt": "…", "lastBackupResult": "success", "backupOverdue": false, "components": [ … ] },
   "disks": [{ "label": "data", "freePercent": 71, "low": false }, { "label": "backup", … }],
   "queue": { "available": true, "pending": 0, "failed": 0 },
+  "auditChain": { "result": "intact | broken | unknown", "checkedAt": "…", "headId": 812, "count": 812, "overdue": false, "problems": [] },
   "smsProvider": "mock"
 }
 ```
 
 `overall` is `problem` for a failed/overdue backup, a failing WAL archiver or off-site copy, low disk or failed jobs;
 `warning` while the off-site copy waits for the internet or the queue schema is not created yet.
+
+`auditChain` comes from `<storage>/audit-anchors/latest.json`, written by the worker's daily audit hash-chain check
+(CP5-04). The file holds the newest audit event id, its hash and the event count, outside PostgreSQL, so deleting
+the newest audit events is noticed at the next check. A `broken` result or a check older than 26 hours makes
+`overall` a `problem`; `unknown` (the job has not run yet on a new server) does not. If the chain is broken: do not
+restore or "fix" anything yet, keep every backup, tell the headteacher, and follow the breach procedure in
+`docs/security/data-protection/`. `anchors.jsonl` next to it is the daily history; keep it with the backups.
+
+Optional Uptime Kuma push: create a **Push** monitor "Audit trail" (heartbeat interval 26 h), save its URL in a
+file mounted into the worker and set `SMS_AUDIT_PUSH_URL_FILE` to that path; the job pushes `up` when intact and
+`down` when broken.
 
 ## Uptime Kuma setup (profile `monitoring`)
 

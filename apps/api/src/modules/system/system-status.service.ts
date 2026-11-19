@@ -1,4 +1,4 @@
-// Owner: Agent H. Builds the GET /system/status report: backups, disk space, queue backlog, SMS provider, version.
+// Owner: Agent H. Builds the GET /system/status report: backups, disk space, queue backlog, audit chain check, SMS provider, version.
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { readFile, readdir, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -40,7 +40,45 @@ export interface SystemStatus {
   };
   disks: DiskStatus[];
   queue: { available: boolean; pending: number | null; failed: number | null };
+  auditChain: AuditChainSummary;
   smsProvider: string;
+}
+
+/**
+ * Result of the worker's daily audit hash-chain check (CP5-04). The worker writes it to
+ * <SMS_FILE_STORAGE_DIR>/audit-anchors/latest.json (modules/audit/audit-chain.job.ts).
+ */
+export interface AuditChainSummary {
+  result: 'intact' | 'broken' | 'unknown';
+  checkedAt: string | null;
+  headId: number | null;
+  count: number | null;
+  overdue: boolean;
+  problems: string[];
+}
+
+/** The daily audit chain check is reported overdue after this (daily + slack for a power cut). */
+export const AUDIT_CHECK_OVERDUE_HOURS = 26;
+
+/** Pure: parses the audit anchor file. A missing file (job never ran yet) is "unknown" and not a problem. */
+export function parseAuditChain(raw: string | null, now: Date): AuditChainSummary {
+  const unknown: AuditChainSummary = { result: 'unknown', checkedAt: null, headId: null, count: null, overdue: false, problems: [] };
+  if (raw === null) return unknown;
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    const checkedAt = typeof j.checkedAt === 'string' && !Number.isNaN(Date.parse(j.checkedAt)) ? j.checkedAt : null;
+    const result = j.result === 'intact' || j.result === 'broken' ? j.result : 'unknown';
+    return {
+      result,
+      checkedAt,
+      headId: typeof j.headId === 'number' ? j.headId : null,
+      count: typeof j.count === 'number' ? j.count : null,
+      overdue: !checkedAt || now.getTime() - Date.parse(checkedAt) > AUDIT_CHECK_OVERDUE_HOURS * 3_600_000,
+      problems: Array.isArray(j.problems) ? j.problems.filter((p): p is string => typeof p === 'string').slice(0, 10) : [],
+    };
+  } catch {
+    return { ...unknown, overdue: true, problems: ['The audit check result file could not be read'] };
+  }
 }
 
 /** Full backup older than this is reported as overdue (nightly + slack for a power cut). */
@@ -77,8 +115,16 @@ export function summarise(
   disks: DiskStatus[],
   queue: SystemStatus['queue'],
   now: Date,
+  auditChain?: AuditChainSummary,
 ): Pick<SystemStatus, 'overall' | 'problems' | 'backup'> {
   const problems: string[] = [];
+  if (auditChain?.result === 'broken') {
+    problems.push(`The daily audit trail check found possible tampering: ${auditChain.problems[0] ?? 'the hash chain is broken'}. Tell the headteacher and keep the backups.`);
+  } else if (auditChain && auditChain.result !== 'unknown' && auditChain.overdue) {
+    problems.push(`The daily audit trail check has not run for more than ${AUDIT_CHECK_OVERDUE_HOURS} hours (is the worker running?).`);
+  } else if (auditChain && auditChain.result === 'unknown' && auditChain.problems.length > 0) {
+    problems.push(auditChain.problems[0]!);
+  }
   const base = components.find((c) => c.component === 'base-backup');
   const lastBackupAt = base?.lastSuccessAt ?? null;
   const overdue = !lastBackupAt || now.getTime() - Date.parse(lastBackupAt) > BACKUP_OVERDUE_HOURS * 3_600_000;
@@ -109,13 +155,14 @@ export class SystemStatusService {
   }
 
   async status(now = new Date()): Promise<SystemStatus> {
-    const [components, disks, queue] = await Promise.all([this.readBackupStatus(), this.readDisks(), this.queueBacklog()]);
+    const [components, disks, queue, auditChain] = await Promise.all([this.readBackupStatus(), this.readDisks(), this.queueBacklog(), this.readAuditChain(now)]);
     return {
       version: process.env.SMS_APP_VERSION ?? 'dev',
       checkedAt: now.toISOString(),
-      ...summarise(components, disks, queue, now),
+      ...summarise(components, disks, queue, now, auditChain),
       disks,
       queue,
+      auditChain,
       smsProvider: this.cfg.SMS_SMS_PROVIDER,
     };
   }
@@ -139,6 +186,19 @@ export class SystemStatusService {
         }
       }),
     );
+  }
+
+  async readAuditChain(now: Date): Promise<AuditChainSummary> {
+    let raw: string | null = null;
+    try {
+      raw = await readFile(join(this.cfg.SMS_FILE_STORAGE_DIR, 'audit-anchors', 'latest.json'), 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.logger.warn({ err }, 'audit chain status not readable');
+        raw = '';
+      }
+    }
+    return parseAuditChain(raw, now);
   }
 
   async readDisks(): Promise<DiskStatus[]> {
