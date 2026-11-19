@@ -1,0 +1,41 @@
+# Owner: Agent H. Development helpers: PostgreSQL 18 (the production version) and optional ClamAV.
+# The api and web app run on the host with hot reload (`pnpm --filter @sms/api start`, `pnpm --filter @sms/web dev`).
+#
+#   docker compose -f infra/compose/docker-compose.dev.yml up -d
+#   SMS_DB_URL=postgres://sms:sms@localhost:5433/sms_dev pnpm db:migrate
+#
+# Port 5433 so it never clashes with a PostgreSQL already installed on the developer machine.
+# Development-only credentials (sms/sms); never use this file on a server.
+name: kansview-sms-dev
+
+services:
+  postgres:
+    image: postgres:18.7-trixie@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
+    environment:
+      POSTGRES_USER: sms
+      POSTGRES_PASSWORD: sms         # dev only
+      POSTGRES_DB: sms_dev
+      TZ: Africa/Accra
+    command: ["postgres", "-c", "timezone=Africa/Accra", "-c", "log_min_duration_statement=200ms", "-c", "fsync=on"]
+    ports: ["127.0.0.1:${SMS_DEV_PG_PORT:-5433}:5432"]
+    volumes: [pgdata_dev:/var/lib/postgresql]
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sms -d sms_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  clamav:
+    profiles: [clamav]
+    image: clamav/clamav:1.4.6@sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a
+    ports: ["127.0.0.1:3310:3310"]
+    volumes: [clamav_dev:/var/lib/clamav]
+
+  # Full production-like stack locally (images built from this checkout), e.g. to try the Caddy headers:
+  #   docker compose -f infra/compose/docker-compose.yml --env-file infra/compose/.env up -d --build
+
+volumes:
+  pgdata_dev: {}
+  clamav_dev: {}

@@ -1,0 +1,17 @@
+# Used automatically by BuildKit for `-f infra/docker/api.Dockerfile` (build context = repo root).
+**/node_modules
+**/dist
+**/coverage
+**/*.log
+**/.env
+**/.env.*
+.git
+var
+storage
+infra/secrets
+infra/compose
+tests
+docs
+apps/web
+playwright-report
+test-results
