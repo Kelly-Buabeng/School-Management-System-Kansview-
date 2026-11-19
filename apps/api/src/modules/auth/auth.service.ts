@@ -63,8 +63,25 @@ export class AuthService {
 
   async login(usernameIn: string, password: string, client: ClientInfo, res?: { setHeader(n: string, v: string): unknown }): Promise<{ body: LoginResponseDto; session: NewSession }> {
     const username = usernameIn.trim().toLowerCase();
-    this.limiter.enforce(`login:ip:${client.ip}`, RATE_LIMITS.loginPerIp, res);
-    this.limiter.enforce(`login:ipuser:${client.ip}:${username}`, RATE_LIMITS.loginPerIpUser, res);
+    // CP5-02: the per-client limits count failed logins only. Counting every login meant that one shared address
+    // (a school behind NAT, or every client looking like Caddy) was blocked after 50 normal sign-ins. Brute force
+    // against one account is stopped by the account lockout in the users table, which does not depend on the IP.
+    const ipKey = `login:ip:${client.ip}`;
+    const ipUserKey = `login:ipuser:${client.ip}:${username}`;
+    this.limiter.assertUnder(ipKey, RATE_LIMITS.loginPerIp, res);
+    this.limiter.assertUnder(ipUserKey, RATE_LIMITS.loginPerIpUser, res);
+    try {
+      return await this.checkCredentials(username, password, client);
+    } catch (err) {
+      if (err instanceof AppError && err.status >= 400 && err.status < 500) {
+        this.limiter.record(ipKey);
+        this.limiter.record(ipUserKey);
+      }
+      throw err;
+    }
+  }
+
+  private async checkCredentials(username: string, password: string, client: ClientInfo): Promise<{ body: LoginResponseDto; session: NewSession }> {
 
     const user = await this.db.selectFrom('users').selectAll().where('username', '=', username).where('archived_at', 'is', null).executeTakeFirst();
 

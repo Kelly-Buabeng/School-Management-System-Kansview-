@@ -13,7 +13,9 @@ export interface RateLimitRule {
 }
 
 export const RATE_LIMITS = {
+  /** Failed logins only (CP5-02): successful sign-ins never use up the allowance. */
   loginPerIpUser: { limit: 10, windowMs: 15 * 60_000 },
+  /** Failed logins only (CP5-02), per client address. A busy staffroom signing in is never blocked. */
   loginPerIp: { limit: 50, windowMs: 15 * 60_000 },
   mfaPerSession: { limit: 10, windowMs: 15 * 60_000 },
   resetPerIp: { limit: 10, windowMs: 60 * 60_000 },
@@ -63,6 +65,28 @@ export class RateLimiter implements OnModuleDestroy {
       throw new AppError(429, ErrorCodes.RATE_LIMITED, 'Too many attempts. Please wait and try again.',
         `Try again in about ${Math.ceil(d.retryAfterSeconds / 60)} minute(s).`, undefined, { retryAfterSeconds: d.retryAfterSeconds });
     }
+  }
+
+  /**
+   * Throws 429 when `key` already has `rule.limit` hits in the window, without adding one. Use with record() for
+   * limits that should count only failures (logins), so successful requests never use up the allowance.
+   */
+  assertUnder(key: string, rule: RateLimitRule, res?: { setHeader(name: string, value: string): unknown }, now = Date.now()): void {
+    const list = (this.hits.get(key) ?? []).filter((t) => t > now - rule.windowMs);
+    if (list.length >= rule.limit) {
+      this.hits.set(key, list);
+      const retryAfterSeconds = Math.max(1, Math.ceil((list[0]! + rule.windowMs - now) / 1000));
+      res?.setHeader('Retry-After', String(retryAfterSeconds));
+      throw new AppError(429, ErrorCodes.RATE_LIMITED, 'Too many attempts. Please wait and try again.',
+        `Try again in about ${Math.ceil(retryAfterSeconds / 60)} minute(s).`, undefined, { retryAfterSeconds });
+    }
+  }
+
+  /** Adds one hit to `key` (see assertUnder). */
+  record(key: string, now = Date.now()): void {
+    const list = this.hits.get(key) ?? [];
+    list.push(now);
+    this.hits.set(key, list);
   }
 
   reset(key: string): void {
