@@ -1,3 +1,4 @@
+import { randomHex } from '../../lib/random';
 import { formatCedis } from '@sms/shared';
 import type { ImportRow, ImportType, Role } from '@/api/types';
 import { balanceOf, currentEnrolment, getDb, uid, type Db } from '../db';
@@ -67,7 +68,7 @@ export const adminHandlers = [
     if (!b.fullName?.trim()) errors.push({ field: 'fullName', message: 'Enter the full name' });
     if (!b.roles?.length) errors.push({ field: 'roles', message: 'Choose at least one role' });
     if (errors.length) return validation(errors);
-    const temp = `Temp-${Math.random().toString(36).slice(2, 8)}`;
+    const temp = `Temp-${randomHex(4)}`;
     const u = { id: uid(), username: b.username!, password: temp, fullName: b.fullName!.trim(), roles: b.roles!, mfaEnabled: false, mustChangePassword: true, status: 'active' as const, failedLogins: 0, lastLoginAt: null };
     db.users.push(u);
     audit(user, 'create', 'user', `Created user ${u.username} (${u.roles.join(', ')})`);
@@ -96,7 +97,7 @@ export const adminHandlers = [
   r.post<{ id: string }>('/users/{id}/reset-password', 'users:update', ({ user, params }) => {
     const u = getDb().users.find((x) => x.id === params.id);
     if (!u) return notFound('user');
-    u.password = `Temp-${Math.random().toString(36).slice(2, 8)}`;
+    u.password = `Temp-${randomHex(4)}`;
     u.mustChangePassword = true;
     audit(user, 'update', 'user', `Reset password for ${u.username}`);
     return json({ temporaryPassword: u.password });
