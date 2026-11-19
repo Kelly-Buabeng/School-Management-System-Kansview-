@@ -697,6 +697,7 @@ export interface MessageTemplates {
   version: Generated<number>;
 }
 
+
 export interface PasswordResetTokens {
   created_at: Generated<Timestamp>;
   created_by: string | null;

@@ -31,7 +31,8 @@ async function withDatabase(fn) {
   }
 }
 
-// Materialised views are not introspected by kysely-codegen: describe them here (keep in sync with 0005).
+// Materialised views: kysely-codegen < 0.20 skips them and >= 0.20 types every column as nullable.
+// Describe them precisely here (keep in sync with 0005) and replace whatever the generator emitted.
 const MATVIEWS = `
 export interface MvStudentBalances {
   balance_pesewas: Int8;
@@ -57,8 +58,11 @@ src = src.replace(
   /export type Int8 = ColumnType<[^;]+;/,
   'export type Int8 = ColumnType<number, bigint | number | string, bigint | number | string>;',
 );
+src = src.replace(/\nexport interface MvStudentBalances \{[^}]*\}\n/, '\n');
 src = src.replace(/\nexport interface DB \{/, `${MATVIEWS}\nexport interface DB {`);
-src = src.replace(/( {2}messages: Messages;\n)/, '$1  mv_student_balances: MvStudentBalances;\n');
+if (!/ {2}mv_student_balances: MvStudentBalances;/.test(src)) {
+  src = src.replace(/( {2}messages: Messages;\n)/, '$1  mv_student_balances: MvStudentBalances;\n');
+}
 if (!src.includes('mv_student_balances: MvStudentBalances')) throw new Error('post-processing failed: DB interface changed shape');
 writeFileSync(outFile, src);
 console.log(`wrote ${outFile}`);
