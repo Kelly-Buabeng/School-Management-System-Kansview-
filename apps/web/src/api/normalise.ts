@@ -183,7 +183,7 @@ export function normDashboard(d: Loose): DashboardData {
     out.arrears = { totalPesewas: num(fin.outstandingPesewas) ?? 0, studentCount: num(fin.studentsOwing) ?? 0, topClasses: [] };
   }
   const enr = w.enrolmentByClass as Loose | undefined;
-  if (enr) out.enrolmentByClass = listOf<Loose>(enr.classes ?? enr).map((c) => ({ className: str(c.className) ?? str(c.displayName) ?? str(c.name) ?? '', count: num(c.count) ?? num(c.enrolledCount) ?? 0, capacity: num(c.capacity) ?? 0 }));
+  if (enr) out.enrolmentByClass = listOf<Loose>(enr.classes ?? enr).map((c) => ({ className: str(c.className) ?? str(c.displayName) ?? str(c.name) ?? '', count: num(c.count) ?? num(c.enrolled) ?? num(c.enrolledCount) ?? 0, capacity: num(c.capacity) ?? 0 }));
   if (Array.isArray(w.upcomingBirthdays) || Array.isArray(w.birthdays))
     out.birthdays = listOf<Loose>(w.upcomingBirthdays ?? w.birthdays).map((b) => ({ studentId: String(b.studentId), fullName: str(b.fullName) ?? str(b.name) ?? '', className: str(b.className) ?? '', date: str(b.date) ?? str(b.birthday) ?? '', turning: num(b.turning) ?? 0 }));
   if (Array.isArray(w.attendanceTrend)) out.attendanceTrend = listOf<Loose>(w.attendanceTrend).map((p) => ({ date: str(p.date) ?? '', ratePercent: num(p.ratePercent) ?? 0 }));
