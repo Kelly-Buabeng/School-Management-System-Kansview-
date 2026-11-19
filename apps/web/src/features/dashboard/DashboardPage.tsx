@@ -66,7 +66,7 @@ export default function DashboardPage() {
           return (
             <Stack gap="md">
               <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }}>
-                {enrolled !== undefined && <Kpi label="Students enrolled" value={enrolled} note={`${d.enrolmentByClass!.length} classes`} />}
+                {enrolled !== undefined && <Kpi label="Students enrolled" value={enrolled.toLocaleString("en-GB")} note={`${d.enrolmentByClass!.length} classes`} />}
                 {d.todayPayments && <Kpi label="Collected today" value={wholeCedis(d.todayPayments.totalPesewas)} note={`${d.todayPayments.count} payments`} />}
                 {d.arrears && <Kpi label="Outstanding fees" value={wholeCedis(d.arrears.totalPesewas)} note={d.arrears.studentCount ? `${d.arrears.studentCount} students` : undefined} />}
                 {lastAttendance && <Kpi label="Attendance today" value={`${lastAttendance.ratePercent}%`} note={formatDate(lastAttendance.date)} />}
