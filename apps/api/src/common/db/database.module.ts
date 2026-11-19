@@ -3,6 +3,7 @@ import { Kysely, PostgresDialect, type Transaction } from 'kysely';
 import { Pool, types } from 'pg';
 import type { DB } from '@sms/db-types';
 import { APP_CONFIG, type AppConfig } from '../config';
+import { logger } from '../logger';
 
 // bigint (int8) → JS number. Safe: pesewas totals stay far below 2^53. Values above Number.MAX_SAFE_INTEGER throw.
 types.setTypeParser(20, (v) => {
@@ -23,8 +24,16 @@ export type Tx = Transaction<DB>;
     {
       provide: KYSELY,
       inject: [APP_CONFIG],
-      useFactory: (cfg: AppConfig) =>
-        new Kysely<DB>({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: cfg.SMS_DB_URL, max: 20, application_name: 'sms-api' }) }) }),
+      useFactory: (cfg: AppConfig) => {
+        const pool = new Pool({ connectionString: cfg.SMS_DB_URL, max: 20, application_name: 'sms-api' });
+        // An idle client can be terminated by the server (PostgreSQL restart, admin kill, dropped test DB).
+        // Without a listener pg re-emits it as an unhandled 'error' event and the process crashes (CR-0010).
+        // The pool discards the broken client and opens a new one on the next query.
+        pool.on('error', (err: Error & { code?: string }) => {
+          logger.warn({ code: err.code, err: err.message }, 'idle database connection closed by the server; it will be replaced');
+        });
+        return new Kysely<DB>({ dialect: new PostgresDialect({ pool }) });
+      },
     },
   ],
   exports: [KYSELY],

@@ -1,7 +1,7 @@
 # CR-0009: document the sibling-discount suggestion route, and add a login-attempt purge function
 
 - Raised by: Agent H, 2026-11-18
-- Status: **Proposed**
+- Status: **Accepted** by Orchestrator 2026-11-19. Part 1: the route is added to `openapi.yaml` and the allow-list entry removed. Part 2: accepted; the migration is assigned to Agent A as follow-up item 10 (the worker already skips the purge safely until the function exists).
 
 ## 1. Undocumented route found by the contract test
 
