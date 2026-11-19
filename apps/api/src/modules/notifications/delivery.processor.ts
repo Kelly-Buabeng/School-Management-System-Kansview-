@@ -2,7 +2,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { maskPhone } from '@sms/shared';
 import { KYSELY, type Db } from '../../common/db/database.module';
-import { isEmergencyKind, MessageDispatcher } from './message-dispatcher';
+import { FIELD_CRYPTO } from '../../security/field-crypto';
+import type { FieldCryptoEngine } from '../../security/field-crypto.service';
+import { ignoresQuietHours, MessageDispatcher } from './message-dispatcher';
+import { isSensitiveKind } from './notification.service';
 import { MESSAGE_PROVIDER, type MessageProvider, type ProviderSendResult } from './providers/message-provider';
 import { earliestSendTime, isQuietHours } from './quiet-hours';
 import { BossService, SMS_MAX_ATTEMPTS } from './queue/boss.service';
@@ -21,10 +24,14 @@ export class DeliveryProcessor {
     @Inject(MESSAGE_PROVIDER) private readonly provider: MessageProvider,
     private readonly boss: BossService,
     private readonly dispatcher: MessageDispatcher,
+    @Inject(FIELD_CRYPTO) private readonly crypto: FieldCryptoEngine,
   ) {}
 
-  /** @param attemptInRound 1-based attempt number of this queue job (pg-boss retryCount + 1). */
-  async process(recipientId: string, attemptInRound: number): Promise<DeliveryOutcome> {
+  /**
+   * @param attemptInRound 1-based attempt number of this queue job (pg-boss retryCount + 1).
+   * @param sealedBody encrypted real text for messages stored redacted (password reset), from the queue job.
+   */
+  async process(recipientId: string, attemptInRound: number, sealedBody?: string): Promise<DeliveryOutcome> {
     await this.boss.get();
     return this.db.transaction().execute(async (tx) => {
       // Row lock: a duplicate job for the same recipient waits here, then sees status != queued and skips.
@@ -38,10 +45,28 @@ export class DeliveryProcessor {
       if (r.message_status === 'pending_approval' || r.message_status === 'cancelled' || r.message_status === 'draft') return 'skipped';
 
       const now = this.now();
-      if (!isEmergencyKind(r.kind) && isQuietHours(now)) {
+      if (!ignoresQuietHours(r.kind) && isQuietHours(now)) {
         // A retry or late job crossed into quiet hours: hand it to a new job at 07:00 Accra time.
-        await this.boss.sendSms({ recipientId }, earliestSendTime(now, false), tx);
+        await this.boss.sendSms({ recipientId, ...(sealedBody ? { sealedBody } : {}) }, earliestSendTime(now, false), tx);
         return 'deferred';
+      }
+
+      // The stored body of a sensitive message is redacted: send the real text from the job, or nothing at all.
+      let body = r.body;
+      if (isSensitiveKind(r.kind)) {
+        let real: string | null = null;
+        try {
+          real = sealedBody ? this.crypto.decrypt(Buffer.from(sealedBody, 'base64')) : null;
+        } catch {
+          real = null;
+        }
+        if (!real) {
+          const error = 'The one-time code is not stored, so this message cannot be sent again. Ask for a new code.';
+          await tx.updateTable('message_recipients').set({ status: 'failed', last_error: error }).where('id', '=', recipientId).execute();
+          await this.dispatcher.refreshStatus(r.message_id, tx);
+          return 'failed';
+        }
+        body = real;
       }
 
       const prev = await tx.selectFrom('delivery_attempts').select((eb) => eb.fn.max('attempt_no').as('n')).where('recipient_id', '=', recipientId).executeTakeFirst();
@@ -49,7 +74,7 @@ export class DeliveryProcessor {
 
       let result: ProviderSendResult;
       try {
-        result = await this.provider.send(r.phone, r.body);
+        result = await this.provider.send(r.phone, body);
       } catch (err) {
         this.logger.error({ err, recipientId, to: maskPhone(r.phone) }, 'SMS provider threw');
         result = { providerMessageId: null, status: 'failed', costUnits: 0, error: err instanceof Error ? err.message : 'provider error' };

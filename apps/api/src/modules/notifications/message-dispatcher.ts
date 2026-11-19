@@ -26,6 +26,8 @@ export interface DraftMessage {
   needsApproval: boolean;
   scheduledFor?: Date | null;
   dedupeKey?: string | null;
+  /** Encrypted real text when the stored preview/bodies are redacted (see SmsSendJob.sealedBody). */
+  sealedBody?: string | null;
 }
 
 export interface CreatedMessage {
@@ -37,6 +39,11 @@ export interface CreatedMessage {
 }
 
 export const isEmergencyKind = (kind: string): boolean => kind === 'emergency';
+/**
+ * Sent at once, also in quiet hours: emergencies, and password reset codes (sent only to the staff member who asked,
+ * and useless after 30 minutes, so they cannot wait for 07:00).
+ */
+export const ignoresQuietHours = (kind: string): boolean => isEmergencyKind(kind) || kind === 'password_reset';
 
 @Injectable()
 export class MessageDispatcher {
@@ -94,7 +101,9 @@ export class MessageDispatcher {
           .execute();
         if (!draft.needsApproval) {
           const startAfter = this.startAfter(draft.kind, draft.scheduledFor ?? null);
-          for (const r of rows) if (r.status === 'queued') await this.boss.sendSms({ recipientId: r.id }, startAfter, tx);
+          for (const r of rows) {
+            if (r.status === 'queued') await this.boss.sendSms({ recipientId: r.id, ...(draft.sealedBody ? { sealedBody: draft.sealedBody } : {}) }, startAfter, tx);
+          }
         }
       }
       return { messageId, status, deduplicated: false, queued: draft.needsApproval ? 0 : deliverable, skippedOptOut: skipped };
@@ -117,7 +126,7 @@ export class MessageDispatcher {
   private startAfter(kind: string, scheduledFor: Date | null): Date {
     const now = this.now();
     const base = scheduledFor && scheduledFor.getTime() > now.getTime() ? scheduledFor : now;
-    return earliestSendTime(base, isEmergencyKind(kind));
+    return earliestSendTime(base, ignoresQuietHours(kind));
   }
 
   /** Sets messages.status from its recipients: sending → done / partially_failed once nothing is queued. */

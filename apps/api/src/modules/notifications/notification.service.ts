@@ -4,6 +4,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AppError } from '../../common/app-error';
 import type { EnqueueOptions, NotificationRecipient, NotificationService, TemplateCode } from '../../common/contracts';
 import { KYSELY, type Db } from '../../common/db/database.module';
+import { FIELD_CRYPTO } from '../../security/field-crypto';
+import type { FieldCryptoEngine } from '../../security/field-crypto.service';
 import { MessageDispatcher, type DraftRecipient } from './message-dispatcher';
 import { renderTemplate } from './template-engine';
 
@@ -19,6 +21,20 @@ export const DEFAULT_TEMPLATE_BODIES: Record<TemplateCode, string> = {
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 
+/**
+ * Placeholders whose values must never be stored readable: messages.body_rendered_preview and
+ * message_recipients.body (shown in the delivery log to messages:read holders) get REDACTED_VALUE instead, and the
+ * real text travels to the worker encrypted inside the queue job (CP5-06).
+ */
+export const SENSITIVE_PLACEHOLDERS: Partial<Record<TemplateCode, readonly string[]>> = {
+  password_reset: ['code'],
+};
+export const REDACTED_VALUE = '••••••';
+
+export function isSensitiveKind(kind: string): boolean {
+  return (SENSITIVE_PLACEHOLDERS[kind as TemplateCode]?.length ?? 0) > 0;
+}
+
 @Injectable()
 export class QueueNotificationService implements NotificationService {
   private readonly logger = new Logger('NotificationService');
@@ -26,6 +42,7 @@ export class QueueNotificationService implements NotificationService {
   constructor(
     @Inject(KYSELY) private readonly db: Db,
     private readonly dispatcher: MessageDispatcher,
+    @Inject(FIELD_CRYPTO) private readonly crypto: FieldCryptoEngine,
   ) {}
 
   async schoolContext(): Promise<{ schoolName: string; schoolPhone: string }> {
@@ -68,6 +85,12 @@ export class QueueNotificationService implements NotificationService {
     const ctx = { ...school, ...context };
     const { text, missing } = renderTemplate(tpl.body, ctx);
     if (missing.length) this.logger.warn({ template, missing }, 'message rendered with empty placeholders');
+    // Sensitive values (a password reset code) are stored redacted; only the encrypted job carries the real text.
+    const sensitive = SENSITIVE_PLACEHOLDERS[template] ?? [];
+    const stored = sensitive.length
+      ? renderTemplate(tpl.body, { ...ctx, ...Object.fromEntries(sensitive.map((k) => [k, REDACTED_VALUE])) }).text
+      : text;
+    const sealedBody = sensitive.length ? this.crypto.encrypt(text).toString('base64') : null;
 
     // Emergencies reach everyone; other messages respect the guardian's SMS opt-out.
     const optedOut = template === 'emergency'
@@ -77,20 +100,21 @@ export class QueueNotificationService implements NotificationService {
       guardianId: r.guardianId ?? null,
       studentId: r.studentId ?? null,
       phone: r.phone,
-      body: text,
+      body: stored,
       optedOut: !!r.guardianId && (optedOut.has(r.guardianId) || optedOut.has(`${r.guardianId}:${r.studentId}`)),
     }));
     const res = await this.dispatcher.create({
       kind: template,
       channel,
       templateId: tpl.id,
-      preview: text,
+      preview: stored,
       audience: { type: 'system', recipients: recipients.length },
       recipients: drafts,
       requestedBy: opts.requestedByUserId ?? null,
       needsApproval: false,
       scheduledFor: opts.scheduledFor ? new Date(opts.scheduledFor) : null,
       dedupeKey: opts.dedupeKey ?? null,
+      sealedBody,
     });
     return { messageId: res.messageId };
   }
