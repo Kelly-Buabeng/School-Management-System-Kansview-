@@ -26,6 +26,7 @@ describe('counters under concurrency', () => {
 
   it('200 concurrent next_doc_no calls with random rollbacks leave no gaps among committed numbers', async () => {
     const pool = new pg.Pool({ connectionString: db.url, max: 20 });
+    pool.on('error', () => {}); // idle connections are terminated by DROP DATABASE ... WITH (FORCE)
     const committed: number[] = [];
     let rolledBack = 0;
     try {
