@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseTrustProxy } from './trust-proxy';
 
 const Env = z.object({
   SMS_NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -12,6 +13,10 @@ const Env = z.object({
   SMS_CLAMAV_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   SMS_CLAMAV_HOST: z.string().default('clamav'),
   SMS_SMS_PROVIDER: z.enum(['mock', 'hubtel', 'mnotify', 'arkesel']).default('mock'),
+  /** See common/trust-proxy.ts. Unset = trust no proxy; behind Caddy in Compose = 1. */
+  SMS_TRUST_PROXY: z.string().optional().superRefine((v, ctx) => {
+    try { parseTrustProxy(v); } catch (e) { ctx.addIssue({ code: 'custom', message: (e as Error).message }); }
+  }),
 });
 export type AppConfig = z.infer<typeof Env>;
 
